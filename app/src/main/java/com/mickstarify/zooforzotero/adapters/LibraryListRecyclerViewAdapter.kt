@@ -13,6 +13,7 @@ import com.mickstarify.zooforzotero.LibraryActivity.ListEntry
 import com.mickstarify.zooforzotero.R
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Collection
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
+import com.mickstarify.zooforzotero.thumbnails.CoverSize
 import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 
 class LibraryListRecyclerViewAdapter(
@@ -21,11 +22,15 @@ class LibraryListRecyclerViewAdapter(
     /** null = show the normal item-type icons only */
     val thumbnailLoader: PdfThumbnailLoader? = null
 ) : RecyclerView.Adapter<LibraryListRecyclerViewAdapter.ListEntryViewHolder>() {
+    /** true = gallery (grid of large covers), false = the normal list. */
+    var galleryMode: Boolean = false
+
     class ListEntryViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imageView = view.findViewById<ImageView>(R.id.imageView_library_list_image)
         val textView_title = view.findViewById<TextView>(R.id.TextView_library_list_title)
-        val textView_author = view.findViewById<TextView>(R.id.TextView_library_list_author)
-        val pdfImage = view.findViewById<ImageButton>(R.id.imageButton_library_list_attachment)
+        // Only in the list layout; null in the gallery tile.
+        val textView_author: TextView? = view.findViewById(R.id.TextView_library_list_author)
+        val pdfImage: ImageButton? = view.findViewById(R.id.imageButton_library_list_attachment)
         val layout = view.findViewById<ConstraintLayout>(R.id.constraintLayout_library_list_item)
 
         // Which attachment this row is currently showing a cover for.
@@ -34,13 +39,21 @@ class LibraryListRecyclerViewAdapter(
         var boundThumbnailKey: String? = null
     }
 
+    override fun getItemViewType(position: Int): Int =
+        if (galleryMode) VIEW_TYPE_GALLERY else VIEW_TYPE_LIST
+
     override fun onCreateViewHolder(
         parent: ViewGroup,
         viewType: Int
     ): ListEntryViewHolder {
         // Create a new view, which defines the UI of the list item
+        val layout = if (viewType == VIEW_TYPE_GALLERY) {
+            R.layout.library_screen_grid_item
+        } else {
+            R.layout.library_screen_list_item
+        }
         val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.library_screen_list_item, parent, false)
+            .inflate(layout, parent, false)
 
         return ListEntryViewHolder(view)
     }
@@ -55,17 +68,17 @@ class LibraryListRecyclerViewAdapter(
         if (entry.isItem()) {
             val item = entry.getItem()
             holder.textView_title.text = item.getTitle()
-            holder.textView_author.visibility = View.VISIBLE
-            holder.textView_author.text = item.getAuthor()
+            holder.textView_author?.visibility = View.VISIBLE
+            holder.textView_author?.text = item.getAuthor()
             val pdfAttachment = item.getPdfAttachment()
             if (pdfAttachment != null) {
-                holder.pdfImage.visibility = View.VISIBLE
-                holder.pdfImage.setOnClickListener {
+                holder.pdfImage?.visibility = View.VISIBLE
+                holder.pdfImage?.setOnClickListener {
                     Log.d("zotero", "Open Attachment ${item.getTitle()}")
                     listener.onItemAttachmentOpen(pdfAttachment)
                 }
             } else {
-                holder.pdfImage.visibility = View.GONE
+                holder.pdfImage?.visibility = View.GONE
             }
             holder.layout.setOnClickListener {
                 Log.d("zotero", "Open Item")
@@ -185,31 +198,50 @@ class LibraryListRecyclerViewAdapter(
                     R.drawable.treeitem_2x
                 }
             }
+            if (galleryMode) holder.imageView.scaleType = ImageView.ScaleType.CENTER_INSIDE
             holder.imageView.setImageResource(iconResource)
 
-            // Replace the type icon with the PDF's first page when the file is on this device.
             // A standalone PDF (no parent item) is its own attachment.
             val coverSource = pdfAttachment
                 ?: item.takeIf { it.isDownloadable() && it.getFileExtension() == "pdf" }
+
+            if (galleryMode) {
+                // Gallery: tapping the cover opens the PDF; tapping the title shows details.
+                holder.imageView.setOnClickListener {
+                    if (coverSource != null) {
+                        listener.onItemAttachmentOpen(coverSource)
+                    } else {
+                        listener.onItemOpen(item)
+                    }
+                }
+            }
+
+            // Replace the type icon with the PDF's first page when a cover is available.
             if (coverSource != null && thumbnailLoader != null) {
                 val key = coverSource.itemKey
                 holder.boundThumbnailKey = key
                 thumbnailLoader.load(
                     coverSource,
+                    if (galleryMode) CoverSize.GALLERY else CoverSize.LIST,
                     isStillWanted = { holder.boundThumbnailKey == key }
                 ) { bitmap ->
+                    if (galleryMode) holder.imageView.scaleType = ImageView.ScaleType.FIT_CENTER
                     holder.imageView.setImageBitmap(bitmap)
                 }
             }
         } else {
             val collection = entry.getCollection()
             holder.textView_title.text = collection.name
-            holder.textView_author.visibility = View.GONE
-            holder.pdfImage.visibility = View.GONE
+            holder.textView_author?.visibility = View.GONE
+            holder.pdfImage?.visibility = View.GONE
+            if (galleryMode) holder.imageView.scaleType = ImageView.ScaleType.CENTER_INSIDE
             holder.imageView.setImageResource(R.drawable.treesource_collection_2x)
             holder.layout.setOnClickListener {
                 Log.d("zotero", "Open Collection")
                 listener.onCollectionOpen(collection)
+            }
+            if (galleryMode) {
+                holder.imageView.setOnClickListener { listener.onCollectionOpen(collection) }
             }
         }
     }
@@ -221,6 +253,11 @@ class LibraryListRecyclerViewAdapter(
 
     override fun getItemCount(): Int {
         return items.size
+    }
+
+    companion object {
+        private const val VIEW_TYPE_LIST = 0
+        private const val VIEW_TYPE_GALLERY = 1
     }
 }
 

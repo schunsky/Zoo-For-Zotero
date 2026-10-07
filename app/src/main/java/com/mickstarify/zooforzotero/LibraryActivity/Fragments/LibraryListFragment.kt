@@ -18,6 +18,7 @@ import androidx.appcompat.widget.SearchView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -35,6 +36,7 @@ import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
 import com.mickstarify.zooforzotero.adapters.LibraryListInteractionListener
 import com.mickstarify.zooforzotero.adapters.LibraryListRecyclerViewAdapter
 import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
+import com.mickstarify.zooforzotero.thumbnails.ThumbnailSizing
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -81,6 +83,7 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         menu.clear()
         inflater.inflate(R.menu.activity_library_actionbar, menu)
         super.onCreateOptionsMenu(menu, inflater)
+        updateViewToggle(menu.findItem(R.id.toggle_gallery_view))
 
         val menuItem = menu.findItem(R.id.search)
         menuItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
@@ -142,7 +145,7 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
 
         recyclerView.adapter = adapter
         listAdapter = adapter
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
+        applyViewMode()
 
         viewModel.getItems().observe(viewLifecycleOwner) { entries ->
             Log.d("zotero", "Loading new set of item (${entries.size} length)")
@@ -195,6 +198,45 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
                 pdfThumbnailLoader.forgetMissing()
                 adapter.notifyDataSetChanged()
             }
+        }
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == R.id.toggle_gallery_view) {
+            preferenceManager.setGalleryView(!preferenceManager.isGalleryView())
+            applyViewMode()
+            updateViewToggle(item)
+            return true
+        }
+        return super.onOptionsItemSelected(item)
+    }
+
+    /** Shows the list as a grid of covers or as rows, as saved in the settings. */
+    private fun applyViewMode() {
+        val recyclerView = view?.findViewById<RecyclerView>(R.id.recyclerView) ?: return
+        val adapter = listAdapter ?: return
+        val gallery = preferenceManager.isGalleryView()
+        adapter.galleryMode = gallery
+        recyclerView.layoutManager = if (gallery) {
+            GridLayoutManager(
+                requireContext(),
+                ThumbnailSizing.galleryColumns(resources.configuration.screenWidthDp)
+            )
+        } else {
+            LinearLayoutManager(requireContext())
+        }
+        adapter.notifyDataSetChanged()
+    }
+
+    /** The toolbar button offers the *other* view: grid icon in list view, list icon in gallery. */
+    private fun updateViewToggle(menuItem: MenuItem?) {
+        menuItem ?: return
+        if (preferenceManager.isGalleryView()) {
+            menuItem.setIcon(R.drawable.ic_view_list_white_24)
+            menuItem.setTitle(R.string.list_view)
+        } else {
+            menuItem.setIcon(R.drawable.ic_view_grid_white_24)
+            menuItem.setTitle(R.string.gallery_view)
         }
     }
 

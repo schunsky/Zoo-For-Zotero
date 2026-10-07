@@ -264,6 +264,17 @@ class PreferenceManager @Inject constructor(context: Context) {
         return sharedPreferences.getBoolean("show_pdf_thumbnails", true)
     }
 
+    fun isGalleryView(): Boolean {
+        /* Library shown as a grid of covers instead of a list. */
+        return sharedPreferences.getBoolean("library_gallery_view", false)
+    }
+
+    fun setGalleryView(enabled: Boolean) {
+        val editor = sharedPreferences.edit()
+        editor.putBoolean("library_gallery_view", enabled)
+        editor.apply()
+    }
+
     fun getCloudCoverMode(): String {
         /* When to make PDF covers if the attachments folder is in a cloud app (e.g. pCloud). */
         return sharedPreferences.getString("cloud_pdf_covers", "OPENED") ?: "OPENED"

@@ -9,6 +9,12 @@
         app:showAsAction="collapseActionView|ifRoom" />
 
     <item
+        android:id="@+id/toggle_gallery_view"
+        android:icon="@drawable/ic_view_grid_white_24"
+        android:title="@string/gallery_view"
+        app:showAsAction="ifRoom" />
+
+    <item
         android:id="@+id/search"
         android:icon="@drawable/baseline_search_white_24"
         android:title="@string/search_title"

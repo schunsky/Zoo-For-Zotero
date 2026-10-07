@@ -25,12 +25,13 @@ import javax.inject.Singleton
 import kotlin.math.roundToInt
 
 /**
- * Renders the first page of a locally available PDF as a small cover image.
+ * Renders the first page of a PDF as a cover image, in every [CoverSize] at once
+ * (so switching between list and gallery never reads a cloud PDF twice).
  *
- * - Only uses files already on the device (downloaded or linked); never downloads.
- * - Results are cached in memory and on disk (app cache dir), so each PDF is
+ * - Covers are cached in memory and on disk (app cache dir), so each PDF is
  *   rendered once.
  * - Rendering happens on one background thread; callbacks run on the main thread.
+ * - For cloud folders, whether browsing may make new covers follows [CoverPolicy].
  */
 @Singleton
 class PdfThumbnailLoader @Inject constructor(
@@ -40,17 +41,16 @@ class PdfThumbnailLoader @Inject constructor(
 ) {
     companion object {
         private const val TAG = "PdfThumbnailLoader"
-        private const val THUMBNAIL_BOX_DP = 48          // matches the list icon size
         private const val JPEG_QUALITY = 85
     }
 
     private val memoryCache = object : LruCache<String, Bitmap>(
-        (Runtime.getRuntime().maxMemory() / 1024 / 16).toInt()
+        (Runtime.getRuntime().maxMemory() / 1024 / 12).toInt()
     ) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
     }
 
-    // Attachments with no local file, so scrolling doesn't repeat slow folder
+    // Attachments with no cover available, so scrolling doesn't repeat slow folder
     // lookups for every row. Cleared by [forgetMissing] when the list is shown
     // again, so a PDF downloaded in the meantime gets its cover.
     private val knownMissing: MutableSet<String> = ConcurrentHashMap.newKeySet()
@@ -63,21 +63,26 @@ class PdfThumbnailLoader @Inject constructor(
         File(context.cacheDir, "pdf_thumbnails").apply { mkdirs() }
     }
 
-    private val boxPx: Int by lazy {
-        (THUMBNAIL_BOX_DP * context.resources.displayMetrics.density).roundToInt()
+    private fun boxPx(dp: Int): Int = (dp * context.resources.displayMetrics.density).roundToInt()
+
+    private fun keyFor(attachment: Item, size: CoverSize): String? = try {
+        ThumbnailSizing.cacheKey(attachment.itemKey, attachment.data["md5"], size)
+    } catch (e: IllegalArgumentException) {
+        null
     }
 
     /**
-     * Requests the cover for [attachment]. [onLoaded] is called on the main thread
+     * Requests the [size] cover for [attachment]. [onLoaded] is called on the main thread
      * only if a cover could be produced and [isStillWanted] is still true
-     * (list rows get recycled while scrolling).
+     * (rows get recycled while scrolling).
      */
-    fun load(attachment: Item, isStillWanted: () -> Boolean, onLoaded: (Bitmap) -> Unit) {
-        val key = try {
-            ThumbnailSizing.cacheKey(attachment.itemKey, attachment.data["md5"])
-        } catch (e: IllegalArgumentException) {
-            return
-        }
+    fun load(
+        attachment: Item,
+        size: CoverSize,
+        isStillWanted: () -> Boolean,
+        onLoaded: (Bitmap) -> Unit
+    ) {
+        val key = keyFor(attachment, size) ?: return
 
         memoryCache.get(key)?.let {
             onLoaded(it)
@@ -98,7 +103,7 @@ class PdfThumbnailLoader @Inject constructor(
             if (!isStillWanted()) return@execute
 
             val bitmap = readFromDisk(key)
-                ?: if (renderAllowed) renderAndStore(attachment, key) else null
+                ?: if (renderAllowed) renderAllSizes(attachment)[size] else null
             if (bitmap == null) {
                 knownMissing.add(key)
                 return@execute
@@ -112,23 +117,22 @@ class PdfThumbnailLoader @Inject constructor(
     }
 
     /**
-     * Makes the cover for a PDF the user just opened, whatever the cloud setting:
-     * the file is being downloaded for reading anyway. It shows up when the user
+     * Makes the covers for a PDF the user just opened, whatever the cloud setting:
+     * the file is being downloaded for reading anyway. They show up when the user
      * returns to the list.
      */
     fun makeCoverForOpenedPdf(attachment: Item) {
-        val key = try {
-            ThumbnailSizing.cacheKey(attachment.itemKey, attachment.data["md5"])
-        } catch (e: IllegalArgumentException) {
-            return
-        }
+        val keys = CoverSize.values().mapNotNull { keyFor(attachment, it) }
+        if (keys.size < CoverSize.values().size) return
         executor.execute {
-            if (memoryCache.get(key) != null || File(diskDir, "$key.jpg").isFile) return@execute
-            renderAndStore(attachment, key)?.let { bitmap ->
-                memoryCache.put(key, bitmap)
-                knownMissing.remove(key)
-            }
+            val allCached = keys.all { File(diskDir, "$it.jpg").isFile }
+            if (!allCached) renderAllSizes(attachment)
         }
+    }
+
+    /** Re-check attachments that had no cover (e.g. after returning to the list). */
+    fun forgetMissing() {
+        knownMissing.clear()
     }
 
     private fun isOnUnmeteredNetwork(): Boolean {
@@ -137,52 +141,60 @@ class PdfThumbnailLoader @Inject constructor(
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
 
-    /** Re-check attachments that had no local file (e.g. after returning to the list). */
-    fun forgetMissing() {
-        knownMissing.clear()
-    }
-
     private fun readFromDisk(key: String): Bitmap? {
         val file = File(diskDir, "$key.jpg")
         if (!file.isFile) return null
         return BitmapFactory.decodeFile(file.absolutePath)
     }
 
-    private fun renderAndStore(attachment: Item, key: String): Bitmap? {
-        val uri = attachmentStorageManager.findLocalAttachmentUri(attachment) ?: return null
-
-        val bitmap = renderFirstPage(uri, attachment.itemKey) ?: return null
-        writeToDisk(key, bitmap)
-        return bitmap
+    /**
+     * Opens the PDF once and renders its first page in every size.
+     * Each result is saved to disk and to the memory cache.
+     * Returns an empty map if the PDF isn't available or can't be read.
+     */
+    private fun renderAllSizes(attachment: Item): Map<CoverSize, Bitmap> {
+        val uri = attachmentStorageManager.findLocalAttachmentUri(attachment) ?: return emptyMap()
+        val rendered = renderFirstPage(uri, attachment.itemKey)
+        for ((size, bitmap) in rendered) {
+            val key = keyFor(attachment, size) ?: continue
+            writeToDisk(key, bitmap)
+            memoryCache.put(key, bitmap)
+            knownMissing.remove(key)
+        }
+        return rendered
     }
 
-    private fun renderFirstPage(uri: Uri, itemKey: String): Bitmap? {
+    private fun renderFirstPage(uri: Uri, itemKey: String): Map<CoverSize, Bitmap> {
         return try {
             context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
                 PdfRenderer(descriptor).use { renderer ->
                     if (renderer.pageCount == 0) {
-                        null
+                        emptyMap()
                     } else {
                         renderer.openPage(0).use { page ->
-                            val (width, height) =
-                                ThumbnailSizing.fitInBox(page.width, page.height, boxPx, boxPx)
-                            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                            bmp.eraseColor(Color.WHITE) // PDF pages are transparent by default
-                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            bmp
+                            CoverSize.values().associateWith { size ->
+                                val (width, height) = ThumbnailSizing.fitInBox(
+                                    page.width, page.height,
+                                    boxPx(size.boxWidthDp), boxPx(size.boxHeightDp)
+                                )
+                                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                bmp.eraseColor(Color.WHITE) // PDF pages are transparent by default
+                                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                bmp
+                            }
                         }
                     }
                 }
-            }
+            } ?: emptyMap()
         } catch (e: Exception) {
             // Encrypted, damaged, or unreadable PDFs: keep the normal icon.
             Log.d(TAG, "Could not render cover for $itemKey: ${e.message}")
-            null
+            emptyMap()
         }
     }
 
     private fun writeToDisk(key: String, bitmap: Bitmap) {
-        // Write to a temp file first so a crash never leaves a half-written thumbnail.
+        // Write to a temp file first so a crash never leaves a half-written cover.
         val target = File(diskDir, "$key.jpg")
         val temp = File(diskDir, "$key.jpg.tmp")
         try {

@@ -1,6 +1,7 @@
 package com.mickstarify.zooforzotero.thumbnails
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
@@ -67,5 +68,52 @@ class ThumbnailSizingTest {
     @Test
     fun `key with no usable characters is rejected`() {
         assertThrows<IllegalArgumentException> { ThumbnailSizing.cacheKey("../", null) }
+    }
+
+    // ---- cover sizes ----
+
+    @Test
+    fun `list size keeps the original key so covers cached earlier stay valid`() {
+        assertEquals(
+            ThumbnailSizing.cacheKey("ABCD1234", "9e107d9d372bb682"),
+            ThumbnailSizing.cacheKey("ABCD1234", "9e107d9d372bb682", CoverSize.LIST)
+        )
+    }
+
+    @Test
+    fun `gallery size gets its own key, with or without md5`() {
+        assertEquals("ABCD1234_9e107d9d372b_g",
+            ThumbnailSizing.cacheKey("ABCD1234", "9E107D9D372BB682", CoverSize.GALLERY))
+        assertEquals("ABCD1234_g", ThumbnailSizing.cacheKey("ABCD1234", null, CoverSize.GALLERY))
+    }
+
+    @Test
+    fun `every size has a distinct key`() {
+        val keys = CoverSize.values().map { ThumbnailSizing.cacheKey("ABCD1234", "abc", it) }
+        assertEquals(keys.size, keys.toSet().size)
+    }
+
+    @Test
+    fun `gallery cover is a portrait box larger than the list icon`() {
+        val g = CoverSize.GALLERY
+        val l = CoverSize.LIST
+        assertTrue(g.boxHeightDp > g.boxWidthDp, "gallery cover should be portrait")
+        assertTrue(g.boxWidthDp > l.boxWidthDp && g.boxHeightDp > l.boxHeightDp, "gallery cover should be larger")
+    }
+
+    // ---- gallery columns: boundaries around multiples of 130dp ----
+
+    @ParameterizedTest(name = "{0}dp wide -> {1} columns")
+    @CsvSource(
+        "0, 2",      // nonsense width still gives a usable grid
+        "320, 2",    // small phone
+        "389, 2",    // just below 3 x 130
+        "390, 3",    // exactly 3 x 130
+        "411, 3",    // common phone
+        "600, 4",    // small tablet portrait
+        "1280, 9",   // large tablet landscape
+    )
+    fun `gallery columns follow screen width`(widthDp: Int, expected: Int) {
+        assertEquals(expected, ThumbnailSizing.galleryColumns(widthDp))
     }
 }
