@@ -34,6 +34,7 @@ import com.mickstarify.zooforzotero.ZoteroStorage.Database.Collection
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
 import com.mickstarify.zooforzotero.adapters.LibraryListInteractionListener
 import com.mickstarify.zooforzotero.adapters.LibraryListRecyclerViewAdapter
+import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -51,6 +52,9 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
 
     @Inject
     lateinit var preferenceManager: PreferenceManager
+
+    @Inject
+    lateinit var pdfThumbnailLoader: PdfThumbnailLoader
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -128,7 +132,11 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         setHasOptionsMenu(true)
         viewModel = ViewModelProvider(requireActivity()).get(LibraryListViewModel::class.java)
         val recyclerView = requireView().findViewById<RecyclerView>(R.id.recyclerView)
-        val adapter = LibraryListRecyclerViewAdapter(emptyList(), this)
+        val adapter = LibraryListRecyclerViewAdapter(
+            emptyList(),
+            this,
+            thumbnailLoader = if (preferenceManager.shouldShowPdfThumbnails()) pdfThumbnailLoader else null
+        )
 
         recyclerView.adapter = adapter
         recyclerView.layoutManager = LinearLayoutManager(requireContext())

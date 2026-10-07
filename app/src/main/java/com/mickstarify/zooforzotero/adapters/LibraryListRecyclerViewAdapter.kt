@@ -13,10 +13,13 @@ import com.mickstarify.zooforzotero.LibraryActivity.ListEntry
 import com.mickstarify.zooforzotero.R
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Collection
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
+import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 
 class LibraryListRecyclerViewAdapter(
     var items: List<ListEntry>,
-    val listener: LibraryListInteractionListener
+    val listener: LibraryListInteractionListener,
+    /** null = show the normal item-type icons only */
+    val thumbnailLoader: PdfThumbnailLoader? = null
 ) : RecyclerView.Adapter<LibraryListRecyclerViewAdapter.ListEntryViewHolder>() {
     class ListEntryViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imageView = view.findViewById<ImageView>(R.id.imageView_library_list_image)
@@ -24,6 +27,11 @@ class LibraryListRecyclerViewAdapter(
         val textView_author = view.findViewById<TextView>(R.id.TextView_library_list_author)
         val pdfImage = view.findViewById<ImageButton>(R.id.imageButton_library_list_attachment)
         val layout = view.findViewById<ConstraintLayout>(R.id.constraintLayout_library_list_item)
+
+        // Which attachment this row is currently showing a cover for.
+        // Read from the loader thread, hence @Volatile.
+        @Volatile
+        var boundThumbnailKey: String? = null
     }
 
     override fun onCreateViewHolder(
@@ -43,6 +51,7 @@ class LibraryListRecyclerViewAdapter(
     ) {
 
         val entry = items[position]
+        holder.boundThumbnailKey = null
         if (entry.isItem()) {
             val item = entry.getItem()
             holder.textView_title.text = item.getTitle()
@@ -177,6 +186,18 @@ class LibraryListRecyclerViewAdapter(
                 }
             }
             holder.imageView.setImageResource(iconResource)
+
+            // Replace the type icon with the PDF's first page when the file is on this device.
+            if (pdfAttachment != null && thumbnailLoader != null) {
+                val key = pdfAttachment.itemKey
+                holder.boundThumbnailKey = key
+                thumbnailLoader.load(
+                    pdfAttachment,
+                    isStillWanted = { holder.boundThumbnailKey == key }
+                ) { bitmap ->
+                    holder.imageView.setImageBitmap(bitmap)
+                }
+            }
         } else {
             val collection = entry.getCollection()
             holder.textView_title.text = collection.name
@@ -188,6 +209,11 @@ class LibraryListRecyclerViewAdapter(
                 listener.onCollectionOpen(collection)
             }
         }
+    }
+
+    override fun onViewRecycled(holder: ListEntryViewHolder) {
+        super.onViewRecycled(holder)
+        holder.boundThumbnailKey = null
     }
 
     override fun getItemCount(): Int {

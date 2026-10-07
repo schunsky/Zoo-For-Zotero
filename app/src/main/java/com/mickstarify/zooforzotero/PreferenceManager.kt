@@ -259,6 +259,11 @@ class PreferenceManager @Inject constructor(context: Context) {
         return sharedPreferences.getBoolean("should_live_search", true)
     }
 
+    fun shouldShowPdfThumbnails(): Boolean {
+        /* Show the first page of locally available PDFs instead of the item-type icon. */
+        return sharedPreferences.getBoolean("show_pdf_thumbnails", true)
+    }
+
     fun hasShownCustomStorageWarning(): Boolean {
         return sharedPreferences.getBoolean("has_shown_custom_storage_warning", false)
     }

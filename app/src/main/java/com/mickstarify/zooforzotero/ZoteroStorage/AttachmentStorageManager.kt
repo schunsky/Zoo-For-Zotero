@@ -406,6 +406,11 @@ class AttachmentStorageManager @Inject constructor(
     }
 
     fun openLinkedAttachment(item: Item): Intent? {
+        val uri = findLinkedAttachmentUri(item) ?: return null
+        return openAttachment(uri, item.data["contentType"] ?: "")
+    }
+
+    fun findLinkedAttachmentUri(item: Item): Uri? {
         /* This method searches for the linked attachment in the users storage directory.
         * This may fail and return nothing. */
         if (item.data["linkMode"] != "linked_file") {
@@ -447,7 +452,7 @@ class AttachmentStorageManager @Inject constructor(
                 }
                 if (documentFile?.isFile ?: false) {
                     Log.d("zotero", "found file ${documentFile?.name}")
-                    return openAttachment(documentFile!!.uri, item.data["contentType"] ?: "")
+                    return documentFile!!.uri
                 }
             }
         } else if (storageMode == StorageMode.EXTERNAL_CACHE) {
@@ -469,7 +474,7 @@ class AttachmentStorageManager @Inject constructor(
                     } else {
                         Uri.fromFile(document)
                     }
-                    return openAttachment(uri, item.data["contentType"] ?: "")
+                    return uri
                 }
             }
 
@@ -480,5 +485,31 @@ class AttachmentStorageManager @Inject constructor(
 
         return null
     }
+
+    /**
+     * Returns a readable Uri for an attachment that is already on this device
+     * (a downloaded stored file or a linked file), or null if it isn't here.
+     * Never downloads anything and never throws.
+     */
+    fun findLocalAttachmentUri(item: Item): Uri? {
+        return try {
+            if (item.data["linkMode"] == "linked_file") {
+                findLinkedAttachmentUri(item)
+            } else when (storageMode) {
+                StorageMode.EXTERNAL_CACHE -> {
+                    val directory = File(context.externalCacheDir, item.itemKey.uppercase())
+                    val file = File(directory, getFilenameForItem(item))
+                    if (file.isFile && file.length() > 0L) Uri.fromFile(file) else null
+                }
+                StorageMode.CUSTOM -> getAttachmentUri(item)
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        } catch (e: NotImplementedError) {
+            null
+        }
+    }
+
 
 }
