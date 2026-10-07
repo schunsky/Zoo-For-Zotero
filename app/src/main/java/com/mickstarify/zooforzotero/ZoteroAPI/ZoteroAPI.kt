@@ -36,6 +36,7 @@ import retrofit2.Callback
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.adapter.rxjava3.RxJava3CallAdapterFactory
+import com.mickstarify.zooforzotero.search.FullTextSearchLogic
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.LinkedList
 import java.util.concurrent.TimeUnit
@@ -133,6 +134,22 @@ class ZoteroAPI(
         .addConverterFactory(GsonConverterFactory.create())
         .addCallAdapterFactory(RxJava3CallAdapterFactory.create())
         .build().create(ZoteroAPIService::class.java)
+
+    /**
+     * Asks zotero.org which items match [query] anywhere, including inside PDFs
+     * (the full text Zotero desktop indexed and synced). Returns item keys.
+     */
+    fun searchItemKeysEverywhere(
+        query: String,
+        groupID: Int = GroupInfo.NO_GROUP_ID
+    ): Single<List<String>> {
+        val request = if (groupID == GroupInfo.NO_GROUP_ID) {
+            service.searchItemKeys(userID, query, "everything", "keys")
+        } else {
+            service.searchGroupItemKeys(groupID, query, "everything", "keys")
+        }
+        return request.map { body -> FullTextSearchLogic.parseKeys(body.string()) }
+    }
 
     fun downloadItemRx(
         item: Item,

@@ -264,6 +264,11 @@ class PreferenceManager @Inject constructor(context: Context) {
         return sharedPreferences.getBoolean("show_pdf_thumbnails", true)
     }
 
+    fun shouldSearchInsidePdfs(): Boolean {
+        /* Also search the full text of PDFs on zotero.org (needs internet). */
+        return sharedPreferences.getBoolean("search_inside_pdfs", true)
+    }
+
     fun isGalleryView(): Boolean {
         /* Library shown as a grid of covers instead of a list. */
         return sharedPreferences.getBoolean("library_gallery_view", false)

@@ -1,6 +1,8 @@
 package com.mickstarify.zooforzotero.LibraryActivity
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.ViewModelProvider
 import com.mickstarify.zooforzotero.LibraryActivity.ViewModels.LibraryListViewModel
@@ -11,6 +13,8 @@ import com.mickstarify.zooforzotero.ZoteroAPI.Model.Note
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Collection
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.GroupInfo
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
+import com.mickstarify.zooforzotero.search.FullTextSearchLogic
+import io.reactivex.rxjava3.disposables.Disposable
 import java.util.LinkedList
 import java.util.Locale
 
@@ -118,7 +122,37 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
         return model.preferences.shouldLiveSearch()
     }
 
+    // Search inside PDFs (zotero.org). Waits for a short pause in typing, and
+    // only the newest query's answer is used.
+    private val insidePdfHandler = Handler(Looper.getMainLooper())
+    private var pendingInsidePdfSearch: Runnable? = null
+    private var insidePdfRequest: Disposable? = null
+    private var latestQuery = ""
+
+    private fun cancelInsidePdfSearch() {
+        pendingInsidePdfSearch?.let { insidePdfHandler.removeCallbacks(it) }
+        pendingInsidePdfSearch = null
+        insidePdfRequest?.dispose()
+        insidePdfRequest = null
+    }
+
+    private fun scheduleInsidePdfSearch(query: String, localResults: List<ListEntry>) {
+        if (!FullTextSearchLogic.shouldSearch(query, model.preferences.shouldSearchInsidePdfs())) return
+        val shownKeys = localResults.filter { it.isItem() }.map { it.getItem().itemKey }.toSet()
+        val search = Runnable {
+            insidePdfRequest = model.searchInsidePdfs(query, shownKeys) { extra ->
+                if (query != latestQuery || extra.isEmpty()) return@searchInsidePdfs
+                Log.d("zotero", "search inside PDFs added ${extra.size} results for $query")
+                libraryListViewModel.setItems(localResults + extra.map { ListEntry(it) })
+            }
+        }
+        pendingInsidePdfSearch = search
+        insidePdfHandler.postDelayed(search, 700)
+    }
+
     override fun closeQuery() {
+        latestQuery = ""
+        cancelInsidePdfSearch()
         this.setCollection(model.getCurrentCollection())
     }
 
@@ -152,6 +186,8 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
 
     override fun filterEntries(query: String) {
         Log.d("zotero", "filtering $query")
+        latestQuery = query
+        cancelInsidePdfSearch()
         if (query == "" || !model.isLoaded()) {
             //not going to waste my time lol.
             return
@@ -176,6 +212,7 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
 
         Log.d("zotero", "setting items ${entries.size}")
         libraryListViewModel.setItems(entries)
+        scheduleInsidePdfSearch(query, entries)
     }
 
     override fun attachmentDownloadError(message: String) {

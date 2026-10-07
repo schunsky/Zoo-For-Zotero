@@ -33,6 +33,7 @@ import com.mickstarify.zooforzotero.ZoteroStorage.ZoteroDB.ZoteroDBPicker
 import com.mickstarify.zooforzotero.ZoteroStorage.ZoteroDB.ZoteroGroupDB
 import com.mickstarify.zooforzotero.di.SingletonComponentsEntryPoint
 import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
+import com.mickstarify.zooforzotero.search.FullTextSearchLogic
 import dagger.hilt.android.EntryPointAccessors
 import io.reactivex.rxjava3.core.Completable
 import io.reactivex.rxjava3.core.CompletableObserver
@@ -322,6 +323,36 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
         } ?: LinkedList<Item>()
 
         return items
+    }
+
+    /**
+     * Searches inside PDFs via zotero.org and returns, on the main thread, the items
+     * to add to the results (excluding keys in [alreadyShown]). Failures, e.g. no
+     * internet, are only logged: the normal results simply stay as they are.
+     */
+    fun searchInsidePdfs(
+        query: String,
+        alreadyShown: Set<String>,
+        onResult: (List<Item>) -> Unit
+    ): Disposable? {
+        if (!::zoteroAPI.isInitialized) return null
+        val groupID = state.currentGroup.id
+        return zoteroAPI.searchItemKeysEverywhere(query, groupID)
+            .subscribeOn(Schedulers.io())
+            .map { keys ->
+                val byKey = zoteroDB.items?.associateBy { it.itemKey } ?: emptyMap()
+                FullTextSearchLogic.resolveHits(
+                    keys, alreadyShown,
+                    lookup = { byKey[it] },
+                    keyOf = { it.itemKey },
+                    parentKeyOf = { it.data["parentItem"] }
+                )
+            }
+            .observeOn(AndroidSchedulers.mainThread())
+            .subscribe(
+                { items -> onResult(items) },
+                { e -> Log.d("zotero", "search inside PDFs failed: ${e.message}") }
+            )
     }
 
     var downloadDisposable: Disposable? = null

@@ -7,6 +7,7 @@ import com.mickstarify.zooforzotero.ZoteroAPI.Model.DeletedEntriesPojo
 import com.mickstarify.zooforzotero.ZoteroAPI.Model.GroupPojo
 import com.mickstarify.zooforzotero.ZoteroAPI.Model.KeyInfo
 import io.reactivex.rxjava3.core.Observable
+import io.reactivex.rxjava3.core.Single
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.Call
@@ -25,6 +26,24 @@ import retrofit2.http.Streaming
 import retrofit2.http.Url
 
 interface ZoteroAPIService {
+    /* Searches everything, including the full text of PDFs indexed by Zotero desktop.
+     * With format=keys the answer is just the matching item keys, one per line. */
+    @GET("users/{user}/items")
+    fun searchItemKeys(
+        @Path("user") user: String,
+        @Query("q") query: String,
+        @Query("qmode") qmode: String,
+        @Query("format") format: String
+    ): Single<ResponseBody>
+
+    @GET("groups/{groupID}/items")
+    fun searchGroupItemKeys(
+        @Path("groupID") groupID: Int,
+        @Query("q") query: String,
+        @Query("qmode") qmode: String,
+        @Query("format") format: String
+    ): Single<ResponseBody>
+
     @GET("users/{user}/items")
     fun getItems(
         @Header("If-Modified-Since-Version") ifModifiedSinceVersion: Int,

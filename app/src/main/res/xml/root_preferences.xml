@@ -58,6 +58,11 @@
             android:title="Search as you type" />
         <SwitchPreference
             android:defaultValue="true"
+            android:key="search_inside_pdfs"
+            android:summary="Also search the text inside your PDFs on zotero.org (needs internet, and 'Sync full-text content' turned on in Zotero desktop)"
+            android:title="Search inside PDFs" />
+        <SwitchPreference
+            android:defaultValue="true"
             android:key="show_pdf_thumbnails"
             android:summary="Show the first page of PDFs that are on this device. Takes effect when the library is reopened"
             android:title="Show PDF covers" />
