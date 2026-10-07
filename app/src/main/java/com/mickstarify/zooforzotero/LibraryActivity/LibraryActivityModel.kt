@@ -32,6 +32,7 @@ import com.mickstarify.zooforzotero.ZoteroStorage.ZoteroDB.ZoteroDB
 import com.mickstarify.zooforzotero.ZoteroStorage.ZoteroDB.ZoteroDBPicker
 import com.mickstarify.zooforzotero.ZoteroStorage.ZoteroDB.ZoteroGroupDB
 import com.mickstarify.zooforzotero.di.SingletonComponentsEntryPoint
+import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 import dagger.hilt.android.EntryPointAccessors
 import io.reactivex.rxjava3.core.Completable
 import io.reactivex.rxjava3.core.CompletableObserver
@@ -62,6 +63,7 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
     val zoteroDatabase: ZoteroDatabase
     val attachmentStorageManager: AttachmentStorageManager
     val preferences: PreferenceManager
+    private val pdfThumbnailLoader: PdfThumbnailLoader
 
     private val zoteroGroupDB =
         ZoteroGroupDB(
@@ -256,6 +258,9 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
             val intent = attachmentStorageManager.openLinkedAttachment(item)
             if (intent != null) {
                 context.startActivity(intent)
+                if (preferences.shouldShowPdfThumbnails()) {
+                    pdfThumbnailLoader.makeCoverForOpenedPdf(item)
+                }
             } else {
                 presenter.makeToastAlert("Error, could not find linked attachment ${item.data["path"]}")
             }
@@ -1048,6 +1053,7 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
         zoteroDatabase = hiltEntryPoint.getZoteroDatabase()
         attachmentStorageManager = hiltEntryPoint.getAttachmentStorageManager()
         preferences = hiltEntryPoint.getPreferences()
+        pdfThumbnailLoader = hiltEntryPoint.getPdfThumbnailLoader()
 
         val auth = AuthenticationStorage(context)
         // add the first library state.

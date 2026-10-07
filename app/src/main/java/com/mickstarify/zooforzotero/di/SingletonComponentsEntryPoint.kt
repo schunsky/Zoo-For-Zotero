@@ -3,6 +3,7 @@ package com.mickstarify.zooforzotero.di
 import com.mickstarify.zooforzotero.PreferenceManager
 import com.mickstarify.zooforzotero.ZoteroStorage.AttachmentStorageManager
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.ZoteroDatabase
+import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -12,4 +13,5 @@ interface SingletonComponentsEntryPoint {
     fun getZoteroDatabase(): ZoteroDatabase
     fun getAttachmentStorageManager(): AttachmentStorageManager
     fun getPreferences(): PreferenceManager
+    fun getPdfThumbnailLoader(): PdfThumbnailLoader
 }

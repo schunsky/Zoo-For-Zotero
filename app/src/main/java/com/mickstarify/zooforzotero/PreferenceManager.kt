@@ -264,6 +264,11 @@ class PreferenceManager @Inject constructor(context: Context) {
         return sharedPreferences.getBoolean("show_pdf_thumbnails", true)
     }
 
+    fun getCloudCoverMode(): String {
+        /* When to make PDF covers if the attachments folder is in a cloud app (e.g. pCloud). */
+        return sharedPreferences.getString("cloud_pdf_covers", "OPENED") ?: "OPENED"
+    }
+
     fun hasShownCustomStorageWarning(): Boolean {
         return sharedPreferences.getBoolean("has_shown_custom_storage_warning", false)
     }

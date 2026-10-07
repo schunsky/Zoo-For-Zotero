@@ -27,4 +27,16 @@
         <item>EXTERNAL_CACHE</item>
         <item>CUSTOM</item>
     </string-array>
+
+    <string-array name="cloud_pdf_covers_entries">
+        <item>Only for PDFs I open</item>
+        <item>All PDFs, on Wi-Fi only</item>
+        <item>All PDFs, on any connection</item>
+    </string-array>
+
+    <string-array name="cloud_pdf_covers_values">
+        <item>OPENED</item>
+        <item>WIFI</item>
+        <item>ALL</item>
+    </string-array>
 </resources>

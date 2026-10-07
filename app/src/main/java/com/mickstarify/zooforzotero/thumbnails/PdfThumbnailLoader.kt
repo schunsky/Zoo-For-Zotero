@@ -5,11 +5,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.LruCache
+import com.mickstarify.zooforzotero.PreferenceManager
 import com.mickstarify.zooforzotero.ZoteroStorage.AttachmentStorageManager
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
 import java.io.File
@@ -32,7 +35,8 @@ import kotlin.math.roundToInt
 @Singleton
 class PdfThumbnailLoader @Inject constructor(
     private val context: Context,
-    private val attachmentStorageManager: AttachmentStorageManager
+    private val attachmentStorageManager: AttachmentStorageManager,
+    private val preferenceManager: PreferenceManager
 ) {
     companion object {
         private const val TAG = "PdfThumbnailLoader"
@@ -82,10 +86,13 @@ class PdfThumbnailLoader @Inject constructor(
 
         if (key in knownMissing) return
 
-        // Covers already made are still shown below via the caches; but don't
-        // look up or render new ones from a cloud folder, as that would download
-        // every PDF scrolled past.
-        val renderAllowed = attachmentStorageManager.isAttachmentFolderOnDevice()
+        // Covers already made are always shown (from the caches). Making a new one
+        // from a cloud folder downloads the PDF, so that follows the user's setting.
+        val renderAllowed = CoverPolicy.mayRenderWhileBrowsing(
+            folderOnDevice = attachmentStorageManager.isAttachmentFolderOnDevice(),
+            cloudMode = preferenceManager.getCloudCoverMode(),
+            unmeteredNetwork = isOnUnmeteredNetwork()
+        )
 
         executor.execute {
             if (!isStillWanted()) return@execute
@@ -102,6 +109,32 @@ class PdfThumbnailLoader @Inject constructor(
                 if (isStillWanted()) onLoaded(bitmap)
             }
         }
+    }
+
+    /**
+     * Makes the cover for a PDF the user just opened, whatever the cloud setting:
+     * the file is being downloaded for reading anyway. It shows up when the user
+     * returns to the list.
+     */
+    fun makeCoverForOpenedPdf(attachment: Item) {
+        val key = try {
+            ThumbnailSizing.cacheKey(attachment.itemKey, attachment.data["md5"])
+        } catch (e: IllegalArgumentException) {
+            return
+        }
+        executor.execute {
+            if (memoryCache.get(key) != null || File(diskDir, "$key.jpg").isFile) return@execute
+            renderAndStore(attachment, key)?.let { bitmap ->
+                memoryCache.put(key, bitmap)
+                knownMissing.remove(key)
+            }
+        }
+    }
+
+    private fun isOnUnmeteredNetwork(): Boolean {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return false
+        val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
 
     /** Re-check attachments that had no local file (e.g. after returning to the list). */

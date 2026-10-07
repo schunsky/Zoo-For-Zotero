@@ -61,6 +61,14 @@
             android:key="show_pdf_thumbnails"
             android:summary="Show the first page of PDFs that are on this device. Takes effect when the library is reopened"
             android:title="Show PDF covers" />
+        <ListPreference
+            app:defaultValue="OPENED"
+            app:dependency="show_pdf_thumbnails"
+            app:entries="@array/cloud_pdf_covers_entries"
+            app:entryValues="@array/cloud_pdf_covers_values"
+            app:key="cloud_pdf_covers"
+            app:title="PDF covers for cloud folders"
+            app:useSimpleSummaryProvider="true" />
         <SwitchPreference
             android:defaultValue="false"
             android:key="check_md5sum_before_attachment_open"
