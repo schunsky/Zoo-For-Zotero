@@ -269,6 +269,11 @@ class PreferenceManager @Inject constructor(context: Context) {
         return sharedPreferences.getBoolean("search_inside_pdfs", true)
     }
 
+    fun getSearchSnippetMode(): String {
+        /* When to download PDF text to show the words around a match: OFF / WIFI / ALL. */
+        return sharedPreferences.getString("search_snippets", "WIFI") ?: "WIFI"
+    }
+
     fun isGalleryView(): Boolean {
         /* Library shown as a grid of covers instead of a list. */
         return sharedPreferences.getBoolean("library_gallery_view", false)

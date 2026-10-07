@@ -162,6 +162,13 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         val swipeRefresh =
             requireView().findViewById<SwipeRefreshLayout>(R.id.library_swipe_refresh)
         swipeRefresh.setOnRefreshListener(this)
+        viewModel.getSnippets().observe(viewLifecycleOwner) { snippets ->
+            listAdapter?.let { adapter ->
+                adapter.snippets = snippets
+                adapter.notifyDataSetChanged()
+            }
+        }
+
         viewModel.getIsShowingLoadingAnimation().observe(viewLifecycleOwner) {
             swipeRefresh.isRefreshing = it
         }

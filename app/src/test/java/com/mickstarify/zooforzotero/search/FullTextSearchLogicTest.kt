@@ -57,7 +57,7 @@ class FullTextSearchLogicTest {
             FullTextSearchLogic.resolveHits(
                 keys, shown,
                 lookup = { library[it] }, keyOf = { it.key }, parentKeyOf = { it.parent }
-            ).map { it.key }
+            ).map { it.shown.key }
 
         @Test
         fun `match inside a PDF shows its parent item`() =
@@ -82,6 +82,16 @@ class FullTextSearchLogicTest {
         @Test
         fun `PDF whose parent is missing shows the PDF itself`() =
             assertEquals(listOf("ORPHAN01"), resolve(listOf("ORPHAN01")))
+
+        @Test
+        fun `each entry remembers which keys matched for it`() {
+            val hits = FullTextSearchLogic.resolveHits(
+                listOf("NOTE0001", "PDF00001", "PDF00001"), emptySet(),
+                lookup = { library[it] }, keyOf = { it.key }, parentKeyOf = { it.parent }
+            )
+            assertEquals(1, hits.size)
+            assertEquals(listOf("NOTE0001", "PDF00001"), hits[0].matchedKeys)
+        }
 
         @Test
         fun `server order is kept`() =

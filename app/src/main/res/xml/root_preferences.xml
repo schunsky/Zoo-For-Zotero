@@ -61,6 +61,14 @@
             android:key="search_inside_pdfs"
             android:summary="Also search the text inside your PDFs on zotero.org (needs internet, and 'Sync full-text content' turned on in Zotero desktop)"
             android:title="Search inside PDFs" />
+        <ListPreference
+            app:defaultValue="WIFI"
+            app:dependency="search_inside_pdfs"
+            app:entries="@array/search_snippets_entries"
+            app:entryValues="@array/search_snippets_values"
+            app:key="search_snippets"
+            app:title="Show text around PDF matches"
+            app:useSimpleSummaryProvider="true" />
         <SwitchPreference
             android:defaultValue="true"
             android:key="show_pdf_thumbnails"

@@ -36,6 +36,19 @@ interface ZoteroAPIService {
         @Query("format") format: String
     ): Single<ResponseBody>
 
+    /* The text Zotero desktop extracted from an attachment: {"content": "...", ...} */
+    @GET("users/{user}/items/{itemKey}/fulltext")
+    fun getFullText(
+        @Path("user") user: String,
+        @Path("itemKey") itemKey: String
+    ): Single<ResponseBody>
+
+    @GET("groups/{groupID}/items/{itemKey}/fulltext")
+    fun getGroupFullText(
+        @Path("groupID") groupID: Int,
+        @Path("itemKey") itemKey: String
+    ): Single<ResponseBody>
+
     @GET("groups/{groupID}/items")
     fun searchGroupItemKeys(
         @Path("groupID") groupID: Int,

@@ -25,12 +25,16 @@ class LibraryListRecyclerViewAdapter(
     /** true = gallery (grid of large covers), false = the normal list. */
     var galleryMode: Boolean = false
 
+    /** Search-result context lines by item key (list view only). */
+    var snippets: Map<String, CharSequence> = emptyMap()
+
     class ListEntryViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imageView = view.findViewById<ImageView>(R.id.imageView_library_list_image)
         val textView_title = view.findViewById<TextView>(R.id.TextView_library_list_title)
         // Only in the list layout; null in the gallery tile.
         val textView_author: TextView? = view.findViewById(R.id.TextView_library_list_author)
         val pdfImage: ImageButton? = view.findViewById(R.id.imageButton_library_list_attachment)
+        val textView_snippet: TextView? = view.findViewById(R.id.TextView_library_list_snippet)
         val layout = view.findViewById<ConstraintLayout>(R.id.constraintLayout_library_list_item)
 
         // Which attachment this row is currently showing a cover for.
@@ -70,6 +74,9 @@ class LibraryListRecyclerViewAdapter(
             holder.textView_title.text = item.getTitle()
             holder.textView_author?.visibility = View.VISIBLE
             holder.textView_author?.text = item.getAuthor()
+            val snippet = snippets[item.itemKey]
+            holder.textView_snippet?.visibility = if (snippet == null) View.GONE else View.VISIBLE
+            holder.textView_snippet?.text = snippet
             val pdfAttachment = item.getPdfAttachment()
             if (pdfAttachment != null) {
                 holder.pdfImage?.visibility = View.VISIBLE
@@ -233,6 +240,7 @@ class LibraryListRecyclerViewAdapter(
             val collection = entry.getCollection()
             holder.textView_title.text = collection.name
             holder.textView_author?.visibility = View.GONE
+            holder.textView_snippet?.visibility = View.GONE
             holder.pdfImage?.visibility = View.GONE
             if (galleryMode) holder.imageView.scaleType = ImageView.ScaleType.CENTER_INSIDE
             holder.imageView.setImageResource(R.drawable.treesource_collection_2x)

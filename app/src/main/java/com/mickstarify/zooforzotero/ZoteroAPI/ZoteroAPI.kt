@@ -151,6 +151,19 @@ class ZoteroAPI(
         return request.map { body -> FullTextSearchLogic.parseKeys(body.string()) }
     }
 
+    /** The text Zotero desktop extracted from [attachmentKey]'s file (fails if there is none). */
+    fun getFullText(attachmentKey: String, groupID: Int = GroupInfo.NO_GROUP_ID): Single<String> {
+        val request = if (groupID == GroupInfo.NO_GROUP_ID) {
+            service.getFullText(userID, attachmentKey)
+        } else {
+            service.getGroupFullText(groupID, attachmentKey)
+        }
+        return request.map { body ->
+            val json = com.google.gson.Gson().fromJson(body.string(), com.google.gson.JsonObject::class.java)
+            json?.get("content")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+        }
+    }
+
     fun downloadItemRx(
         item: Item,
         groupID: Int = GroupInfo.NO_GROUP_ID,

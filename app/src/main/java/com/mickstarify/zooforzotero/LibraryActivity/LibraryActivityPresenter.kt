@@ -14,6 +14,8 @@ import com.mickstarify.zooforzotero.ZoteroStorage.Database.Collection
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.GroupInfo
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
 import com.mickstarify.zooforzotero.search.FullTextSearchLogic
+import com.mickstarify.zooforzotero.search.SnippetFormatter
+import com.mickstarify.zooforzotero.search.SnippetLogic
 import io.reactivex.rxjava3.disposables.Disposable
 import java.util.LinkedList
 import java.util.Locale
@@ -127,13 +129,38 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
     private val insidePdfHandler = Handler(Looper.getMainLooper())
     private var pendingInsidePdfSearch: Runnable? = null
     private var insidePdfRequest: Disposable? = null
+    private var snippetRequest: Disposable? = null
     private var latestQuery = ""
+
+    // Context lines under search results, by item key.
+    private val snippets = HashMap<String, CharSequence>()
 
     private fun cancelInsidePdfSearch() {
         pendingInsidePdfSearch?.let { insidePdfHandler.removeCallbacks(it) }
         pendingInsidePdfSearch = null
         insidePdfRequest?.dispose()
         insidePdfRequest = null
+        snippetRequest?.dispose()
+        snippetRequest = null
+        if (snippets.isNotEmpty()) {
+            snippets.clear()
+            libraryListViewModel.setSnippets(emptyMap())
+        }
+    }
+
+    /** For on-phone matches that aren't visible in the title or authors, show where in the abstract they are. */
+    private fun addAbstractSnippets(query: String, results: List<ListEntry>) {
+        if (query.startsWith("tag:")) return
+        for (entry in results) {
+            if (!entry.isItem()) continue
+            val item = entry.getItem()
+            if (item.getTitle().contains(query, ignoreCase = true)) continue
+            if (item.getAuthor().contains(query, ignoreCase = true)) continue
+            val abstract = item.data["abstractNote"] ?: continue
+            val snippet = SnippetLogic.makeSnippet(abstract, query) ?: continue
+            snippets[item.itemKey] = SnippetFormatter.format(snippet, "Abstract · ")
+        }
+        if (snippets.isNotEmpty()) libraryListViewModel.setSnippets(HashMap(snippets))
     }
 
     private fun scheduleInsidePdfSearch(query: String, localResults: List<ListEntry>) {
@@ -143,7 +170,15 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
             insidePdfRequest = model.searchInsidePdfs(query, shownKeys) { extra ->
                 if (query != latestQuery || extra.isEmpty()) return@searchInsidePdfs
                 Log.d("zotero", "search inside PDFs added ${extra.size} results for $query")
-                libraryListViewModel.setItems(localResults + extra.map { ListEntry(it) })
+                libraryListViewModel.setItems(localResults + extra.map { ListEntry(it.first) })
+
+                // Then fill in the words around each match, one PDF at a time.
+                val pdfHits = extra.mapNotNull { (item, pdfKey) -> pdfKey?.let { item.itemKey to it } }
+                snippetRequest = model.loadPdfSnippets(query, pdfHits) { itemKey, snippet ->
+                    if (query != latestQuery) return@loadPdfSnippets
+                    snippets[itemKey] = SnippetFormatter.format(snippet, SnippetLogic.pdfLabel(snippet))
+                    libraryListViewModel.setSnippets(HashMap(snippets))
+                }
             }
         }
         pendingInsidePdfSearch = search
@@ -212,6 +247,7 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
 
         Log.d("zotero", "setting items ${entries.size}")
         libraryListViewModel.setItems(entries)
+        addAbstractSnippets(query, entries)
         scheduleInsidePdfSearch(query, entries)
     }
 

@@ -17,6 +17,13 @@ class LibraryListViewModel : ViewModel() {
         this.items.value = items
     }
 
+    // Search-result context lines, by item key (empty when not searching).
+    private val snippets = MutableLiveData<Map<String, CharSequence>>(emptyMap())
+    fun getSnippets(): LiveData<Map<String, CharSequence>> = snippets
+    fun setSnippets(value: Map<String, CharSequence>) {
+        snippets.value = value
+    }
+
     private val itemClicked = MutableLiveData<Item>()
     fun getOnItemClicked(): LiveData<Item> = itemClicked
     fun onItemClicked(item: Item) {
