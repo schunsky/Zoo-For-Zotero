@@ -455,6 +455,10 @@ class AttachmentStorageManager @Inject constructor(
                     return documentFile!!.uri
                 }
             }
+            // The fast search above only works when the folder comes from the phone's own
+            // storage. Folders from cloud apps (e.g. pCloud) use internal IDs instead of
+            // paths, so fall back to walking the folders by name.
+            findByWalkingFolders(directories)?.let { return it }
         } else if (storageMode == StorageMode.EXTERNAL_CACHE) {
             // logic using File api is much simpler
             for (i in directories.indices) {
@@ -484,6 +488,39 @@ class AttachmentStorageManager @Inject constructor(
         }
 
         return null
+    }
+
+    /**
+     * Finds a file by opening each folder in [directories] by name, starting from the
+     * chosen attachments folder. Works with any folder provider (including cloud apps),
+     * but is slower, because every step lists a folder's contents.
+     * Like the fast search, it also tries later parts of the path, so a full desktop path
+     * (/home/me/pCloudDrive/Papers/x.pdf) still matches Papers/x.pdf.
+     */
+    private fun findByWalkingFolders(directories: List<String>): Uri? {
+        val root = DocumentFile.fromTreeUri(context, getCustomStorageTreeURI()) ?: return null
+        val parts = directories.filter { it.isNotEmpty() }
+        for (start in parts.indices) {
+            var current: DocumentFile? = root
+            for (name in parts.subList(start, parts.size)) {
+                current = current?.findFile(name)
+                if (current == null) break
+            }
+            if (current != null && current.isFile) {
+                Log.d("zotero", "found file by walking folders: ${parts.subList(start, parts.size).joinToString("/")}")
+                return current.uri
+            }
+        }
+        return null
+    }
+
+    /**
+     * True when attachments are on the phone itself. False when the chosen
+     * attachments folder belongs to a cloud app, where every read downloads the file.
+     */
+    fun isAttachmentFolderOnDevice(): Boolean {
+        if (storageMode != StorageMode.CUSTOM) return true
+        return getCustomStorageTreeURI().authority == "com.android.externalstorage.documents"
     }
 
     /**

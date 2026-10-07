@@ -82,10 +82,16 @@ class PdfThumbnailLoader @Inject constructor(
 
         if (key in knownMissing) return
 
+        // Covers already made are still shown below via the caches; but don't
+        // look up or render new ones from a cloud folder, as that would download
+        // every PDF scrolled past.
+        val renderAllowed = attachmentStorageManager.isAttachmentFolderOnDevice()
+
         executor.execute {
             if (!isStillWanted()) return@execute
 
-            val bitmap = readFromDisk(key) ?: renderAndStore(attachment, key)
+            val bitmap = readFromDisk(key)
+                ?: if (renderAllowed) renderAndStore(attachment, key) else null
             if (bitmap == null) {
                 knownMissing.add(key)
                 return@execute
