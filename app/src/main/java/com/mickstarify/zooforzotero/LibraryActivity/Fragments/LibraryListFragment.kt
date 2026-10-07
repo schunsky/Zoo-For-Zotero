@@ -56,6 +56,8 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     @Inject
     lateinit var pdfThumbnailLoader: PdfThumbnailLoader
 
+    private var listAdapter: LibraryListRecyclerViewAdapter? = null
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
@@ -139,6 +141,7 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         )
 
         recyclerView.adapter = adapter
+        listAdapter = adapter
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
         viewModel.getItems().observe(viewLifecycleOwner) { entries ->
@@ -184,6 +187,15 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         super.onResume()
 
         fab.collapse()
+
+        // Back from the PDF viewer (or anywhere else): a PDF may have been
+        // downloaded meanwhile, so look again and redraw the visible rows.
+        listAdapter?.let { adapter ->
+            if (adapter.thumbnailLoader != null) {
+                pdfThumbnailLoader.forgetMissing()
+                adapter.notifyDataSetChanged()
+            }
+        }
     }
 
     override fun onItemOpen(item: Item) {

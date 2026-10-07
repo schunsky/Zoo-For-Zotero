@@ -8,7 +8,6 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.util.Log
 import android.util.LruCache
 import com.mickstarify.zooforzotero.ZoteroStorage.AttachmentStorageManager
@@ -38,7 +37,6 @@ class PdfThumbnailLoader @Inject constructor(
     companion object {
         private const val TAG = "PdfThumbnailLoader"
         private const val THUMBNAIL_BOX_DP = 48          // matches the list icon size
-        private const val MISS_RETRY_MS = 60_000L        // re-check missing files after a minute
         private const val JPEG_QUALITY = 85
     }
 
@@ -48,9 +46,10 @@ class PdfThumbnailLoader @Inject constructor(
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
     }
 
-    // Attachments we recently found no local file for, so scrolling
-    // doesn't repeat slow folder lookups for every row.
-    private val recentMisses = ConcurrentHashMap<String, Long>()
+    // Attachments with no local file, so scrolling doesn't repeat slow folder
+    // lookups for every row. Cleared by [forgetMissing] when the list is shown
+    // again, so a PDF downloaded in the meantime gets its cover.
+    private val knownMissing: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     // PdfRenderer isn't thread-safe, so render one PDF at a time.
     private val executor = Executors.newSingleThreadExecutor()
@@ -81,25 +80,27 @@ class PdfThumbnailLoader @Inject constructor(
             return
         }
 
-        val missedAt = recentMisses[key]
-        if (missedAt != null && SystemClock.elapsedRealtime() - missedAt < MISS_RETRY_MS) {
-            return
-        }
+        if (key in knownMissing) return
 
         executor.execute {
             if (!isStillWanted()) return@execute
 
             val bitmap = readFromDisk(key) ?: renderAndStore(attachment, key)
             if (bitmap == null) {
-                recentMisses[key] = SystemClock.elapsedRealtime()
+                knownMissing.add(key)
                 return@execute
             }
-            recentMisses.remove(key)
+            knownMissing.remove(key)
             memoryCache.put(key, bitmap)
             mainHandler.post {
                 if (isStillWanted()) onLoaded(bitmap)
             }
         }
+    }
+
+    /** Re-check attachments that had no local file (e.g. after returning to the list). */
+    fun forgetMissing() {
+        knownMissing.clear()
     }
 
     private fun readFromDisk(key: String): Bitmap? {

@@ -188,11 +188,14 @@ class LibraryListRecyclerViewAdapter(
             holder.imageView.setImageResource(iconResource)
 
             // Replace the type icon with the PDF's first page when the file is on this device.
-            if (pdfAttachment != null && thumbnailLoader != null) {
-                val key = pdfAttachment.itemKey
+            // A standalone PDF (no parent item) is its own attachment.
+            val coverSource = pdfAttachment
+                ?: item.takeIf { it.isDownloadable() && it.getFileExtension() == "pdf" }
+            if (coverSource != null && thumbnailLoader != null) {
+                val key = coverSource.itemKey
                 holder.boundThumbnailKey = key
                 thumbnailLoader.load(
-                    pdfAttachment,
+                    coverSource,
                     isStillWanted = { holder.boundThumbnailKey == key }
                 ) { bitmap ->
                     holder.imageView.setImageBitmap(bitmap)
