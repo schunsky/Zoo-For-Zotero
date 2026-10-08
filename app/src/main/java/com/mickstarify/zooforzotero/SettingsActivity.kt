@@ -94,8 +94,16 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        /** "12 searches saved" under the Clear search history button. */
+        private fun updateSearchHistorySummary() {
+            val prefs = (requireActivity() as SettingsActivity).myPreferenceManager
+            findPreference<Preference>("clear_search_history")?.summary =
+                com.mickstarify.zooforzotero.search.SearchHistory.countLabel(prefs.getSearchHistory().size)
+        }
+
         override fun onResume() {
             super.onResume()
+            updateSearchHistorySummary()
             // Set up a listener whenever a key changes
             preferenceScreen.sharedPreferences!!.registerOnSharedPreferenceChangeListener(this)
 
@@ -109,7 +117,21 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         override fun onPreferenceTreeClick(preference: Preference): Boolean {
-            if (preference.key == "download_all_pdf_text") {
+            if (preference.key == "clear_search_history") {
+                val prefs = (requireActivity() as SettingsActivity).myPreferenceManager
+                val count = prefs.getSearchHistory().size
+                if (count == 0) return true
+                androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle("Clear search history?")
+                    .setMessage("Your $count saved searches will be removed from this phone.")
+                    .setPositiveButton("Clear") { _, _ ->
+                        prefs.setSearchHistory(emptyList())
+                        updateSearchHistorySummary()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+                return true
+            } else if (preference.key == "download_all_pdf_text") {
                 (requireActivity() as SettingsActivity).fullTextDownloader.toggle()
                 return true
             } else if (preference.key == "configure_webdav") {

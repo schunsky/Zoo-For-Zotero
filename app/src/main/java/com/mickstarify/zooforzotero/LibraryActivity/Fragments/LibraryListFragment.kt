@@ -40,6 +40,10 @@ import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 import com.mickstarify.zooforzotero.search.SearchProgress
 import com.mickstarify.zooforzotero.search.LibraryViewMode
 import com.mickstarify.zooforzotero.search.LibraryViewState
+import com.mickstarify.zooforzotero.search.SearchHistory
+import android.database.MatrixCursor
+import android.provider.BaseColumns
+import androidx.cursoradapter.widget.SimpleCursorAdapter
 import android.view.KeyEvent
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -52,6 +56,11 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     SwipeRefreshLayout.OnRefreshListener {
 
     companion object {
+        // Search history dropdown
+        private const val COLUMN_QUERY = "query"
+        /** Row id of the "Clear search history" row (real rows use 0, 1, 2, ...). */
+        private const val CLEAR_ROW_ID = -1L
+
         fun newInstance() = LibraryListFragment()
     }
 
@@ -134,6 +143,10 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
             setSearchableInfo(searchManager.getSearchableInfo((requireActivity() as LibraryActivity).componentName))
             setOnQueryTextListener(object : SearchView.OnQueryTextListener {
                 override fun onQueryTextSubmit(query: String): Boolean {
+                    // Remember it (newest first; repeats move to the top).
+                    preferenceManager.setSearchHistory(
+                        SearchHistory.add(preferenceManager.getSearchHistory(), query)
+                    )
 //                    setTitle("Search results for $query")
                     // we will only search on submit for android 7<=
                     if (!preferenceManager.shouldLiveSearch()) {
@@ -160,9 +173,79 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
 
             })
         }
+        setUpSearchHistory()
     }
 
     lateinit var searchView: SearchView
+
+    // ---- Search history: a dropdown under the search box ----
+
+    /** The rows to show for what's typed so far: matching past searches, then "Clear". */
+    private fun historyCursor(typed: String): MatrixCursor {
+        val cursor = MatrixCursor(arrayOf(BaseColumns._ID, COLUMN_QUERY))
+        val history = preferenceManager.getSearchHistory()
+        SearchHistory.suggestions(history, typed).forEachIndexed { i, q ->
+            cursor.addRow(arrayOf<Any>(i.toLong(), q))
+        }
+        if (history.isNotEmpty() && typed.isBlank()) {
+            cursor.addRow(arrayOf<Any>(CLEAR_ROW_ID, "Clear search history"))
+        }
+        return cursor
+    }
+
+    private fun setUpSearchHistory() {
+        val adapter = SimpleCursorAdapter(
+            requireContext(),
+            android.R.layout.simple_list_item_1,
+            historyCursor(""),
+            arrayOf(COLUMN_QUERY),
+            intArrayOf(android.R.id.text1),
+            0
+        )
+        // The box asks the adapter for rows as you type (in the background).
+        adapter.setFilterQueryProvider { typed -> historyCursor(typed?.toString().orEmpty()) }
+        searchView.suggestionsAdapter = adapter
+
+        // Show the history as soon as the empty box is tapped, not only after typing.
+        val box = searchView.findViewById<SearchView.SearchAutoComplete>(androidx.appcompat.R.id.search_src_text)
+        box?.threshold = 0
+        searchView.setOnQueryTextFocusChangeListener { _, hasFocus ->
+            if (hasFocus && box != null && box.text.isNullOrEmpty()) {
+                adapter.changeCursor(historyCursor(""))
+                box.post { if (box.isAttachedToWindow) box.showDropDown() }
+            }
+        }
+
+        searchView.setOnSuggestionListener(object : SearchView.OnSuggestionListener {
+            override fun onSuggestionSelect(position: Int): Boolean = false
+
+            override fun onSuggestionClick(position: Int): Boolean {
+                val cursor = adapter.cursor ?: return true
+                if (!cursor.moveToPosition(position)) return true
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(BaseColumns._ID))
+                if (id == CLEAR_ROW_ID) {
+                    confirmClearSearchHistory { adapter.changeCursor(historyCursor("")) }
+                } else {
+                    // Run that search again, as if typed and Search pressed.
+                    val query = cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_QUERY))
+                    searchView.setQuery(query, true)
+                }
+                return true
+            }
+        })
+    }
+
+    private fun confirmClearSearchHistory(afterClearing: () -> Unit) {
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("Clear search history?")
+            .setMessage("Your ${preferenceManager.getSearchHistory().size} saved searches will be removed from this phone.")
+            .setPositiveButton("Clear") { _, _ ->
+                preferenceManager.setSearchHistory(emptyList())
+                afterClearing()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         super.onActivityCreated(savedInstanceState)

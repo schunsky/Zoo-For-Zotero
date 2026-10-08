@@ -77,7 +77,11 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory app:title="Search inside PDFs">
+    <PreferenceCategory app:title="Search">
+        <Preference
+            app:key="clear_search_history"
+            app:summary="No searches saved"
+            app:title="Clear search history" />
         <SwitchPreference
             android:defaultValue="true"
             android:key="search_inside_pdfs"

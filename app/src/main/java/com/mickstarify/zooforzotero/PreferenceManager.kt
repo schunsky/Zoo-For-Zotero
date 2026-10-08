@@ -293,6 +293,17 @@ class PreferenceManager @Inject constructor(context: Context) {
         /* Order PDF search results by how often the term appears. */
         sharedPreferences.getBoolean("sort_pdf_results_by_matches", false)
 
+    /** Recent searches, newest first (kept on this phone only). */
+    fun getSearchHistory(): List<String> =
+        com.mickstarify.zooforzotero.search.SearchHistory.decode(
+            sharedPreferences.getString("search_history", null))
+
+    fun setSearchHistory(history: List<String>) {
+        sharedPreferences.edit()
+            .putString("search_history", com.mickstarify.zooforzotero.search.SearchHistory.encode(history))
+            .apply()
+    }
+
     fun isGalleryView(): Boolean {
         /* Library shown as a grid of covers instead of a list. */
         return sharedPreferences.getBoolean("library_gallery_view", false)
