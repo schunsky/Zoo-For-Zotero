@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import com.mickstarify.zooforzotero.LibraryActivity.ListEntry
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Collection
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
+import com.mickstarify.zooforzotero.search.SearchProgress
 
 class LibraryListViewModel : ViewModel() {
     private val items = MutableLiveData<List<ListEntry>>()
@@ -22,6 +23,34 @@ class LibraryListViewModel : ViewModel() {
     fun getSnippets(): LiveData<Map<String, CharSequence>> = snippets
     fun setSnippets(value: Map<String, CharSequence>) {
         snippets.value = value
+    }
+
+    // Search inside PDFs: progress window state (null = not searching).
+    private val searchProgress = MutableLiveData<SearchProgress?>(null)
+    fun getSearchProgress(): LiveData<SearchProgress?> = searchProgress
+    fun setSearchProgress(value: SearchProgress?) {
+        searchProgress.value = value
+    }
+
+    // Line under the title after a search, e.g. "23 results · matches in 12 PDFs" (null = none).
+    private val searchSummary = MutableLiveData<String?>(null)
+    fun getSearchSummary(): LiveData<String?> = searchSummary
+    fun setSearchSummary(value: String?) {
+        searchSummary.value = value
+    }
+
+    // Cancel pressed in the progress window (counter, so every press is seen).
+    private val searchCancelRequests = MutableLiveData<Int>()
+    fun getSearchCancelRequests(): LiveData<Int> = searchCancelRequests
+    fun requestSearchCancel() {
+        searchCancelRequests.value = (searchCancelRequests.value ?: 0) + 1
+    }
+
+    // Ask the screen to empty and close the search box.
+    private val clearSearchBoxRequests = MutableLiveData<Int>()
+    fun getClearSearchBoxRequests(): LiveData<Int> = clearSearchBoxRequests
+    fun requestClearSearchBox() {
+        clearSearchBoxRequests.value = (clearSearchBoxRequests.value ?: 0) + 1
     }
 
     private val itemClicked = MutableLiveData<Item>()

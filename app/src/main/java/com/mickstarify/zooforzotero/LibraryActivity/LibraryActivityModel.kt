@@ -38,6 +38,7 @@ import com.mickstarify.zooforzotero.search.FullTextSearchLogic
 import com.mickstarify.zooforzotero.search.NetworkUtil
 import com.mickstarify.zooforzotero.search.SnippetLogic
 import com.mickstarify.zooforzotero.search.SnippetPlanning
+import com.mickstarify.zooforzotero.search.SearchSummary
 import com.mickstarify.zooforzotero.search.TextSnippet
 import io.reactivex.rxjava3.core.Maybe
 import io.reactivex.rxjava3.core.Single
@@ -343,7 +344,8 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
     fun searchInsidePdfs(
         query: String,
         alreadyShown: Set<String>,
-        onResult: (List<Pair<Item, String?>>) -> Unit
+        onResult: (extra: List<Pair<Item, String?>>, pdfsWithMatches: Int) -> Unit,
+        onError: () -> Unit
     ): Disposable? {
         if (!::zoteroAPI.isInitialized) return null
         val groupID = state.currentGroup.id
@@ -351,22 +353,25 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
             .subscribeOn(Schedulers.io())
             .map { keys ->
                 val byKey = zoteroDB.items?.associateBy { it.itemKey } ?: emptyMap()
-                FullTextSearchLogic.resolveHits(
+                fun isPdf(key: String) =
+                    byKey[key]?.let { it.isDownloadable() && it.getFileExtension() == "pdf" } == true
+                // Counted over every match, including items the normal search already showed.
+                val pdfsWithMatches = SearchSummary.countPdfs(keys, ::isPdf)
+                val extra = FullTextSearchLogic.resolveHits(
                     keys, alreadyShown,
                     lookup = { byKey[it] },
                     keyOf = { it.itemKey },
                     parentKeyOf = { it.data["parentItem"] }
-                ).map { hit ->
-                    val pdfKey = hit.matchedKeys.firstOrNull { key ->
-                        byKey[key]?.let { it.isDownloadable() && it.getFileExtension() == "pdf" } == true
-                    }
-                    Pair(hit.shown, pdfKey)
-                }
+                ).map { hit -> Pair(hit.shown, hit.matchedKeys.firstOrNull(::isPdf)) }
+                Pair(extra, pdfsWithMatches)
             }
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe(
-                { items -> onResult(items) },
-                { e -> Log.d("zotero", "search inside PDFs failed: ${e.message}") }
+                { (extra, pdfsWithMatches) -> onResult(extra, pdfsWithMatches) },
+                { e ->
+                    Log.d("zotero", "search inside PDFs failed: ${e.message}")
+                    onError()
+                }
             )
     }
 
@@ -378,17 +383,24 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
         )
     }
 
+    /** One PDF processed while reading text: its snippet, or null if none was found. */
+    private class SnippetResult(val itemKey: String, val snippet: TextSnippet?)
+
     /**
      * For each (item key, PDF key) in [pdfHits], finds the words around [query] in the
      * PDF's text and reports them via [onSnippet] on the main thread, one at a time.
      * Text already saved on the phone is always used (no download). Of the rest, up to
      * the "Downloads per search" setting are downloaded, if the setting and network
      * allow; saved-text results come first since they're instant.
+     * [onProgress] reports (PDFs done, PDFs to do) on the main thread: once with 0 when
+     * the amount of work is known, then after every PDF.
      * [onDone] runs on the main thread once every PDF has been tried.
+     * Returns null when there is nothing to do (e.g. the setting is Off).
      */
     fun loadPdfSnippets(
         query: String,
         pdfHits: List<Pair<String, String>>,
+        onProgress: (done: Int, total: Int) -> Unit,
         onSnippet: (itemKey: String, snippet: TextSnippet) -> Unit,
         onDone: () -> Unit
     ): Disposable? {
@@ -396,6 +408,8 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
         val mode = preferences.getSearchSnippetMode()
         if (mode == "OFF") return null
         val groupID = state.currentGroup.id
+        var total = 0
+        var done = 0
 
         return Observable.defer {
             fullTextCache.trim()   // apply changed limits before using the saved text
@@ -406,9 +420,15 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
                 downloadLimit = preferences.getSnippetsPerSearch()
             )
             Log.d("zotero", "PDF snippets: ${plan.fromPhone.size} saved, ${plan.toDownload.size} to download")
-            Observable.fromIterable(plan.fromPhone.map { it to false } + plan.toDownload.map { it to true })
+            val work = plan.fromPhone.map { it to false } + plan.toDownload.map { it to true }
+            val count = work.size
+            AndroidSchedulers.mainThread().scheduleDirect {
+                total = count
+                onProgress(0, count)
+            }
+            Observable.fromIterable(work)
         }
-            .concatMapMaybe { (hit, download) ->
+            .concatMapSingle { (hit, download) ->
                 val (itemKey, pdfKey) = hit
                 val text: Maybe<String> = if (!download) {
                     Maybe.defer {
@@ -421,20 +441,21 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
                         .toMaybe()
                         .onErrorComplete()
                 }
-                text.flatMap { t ->
-                    val snippet = SnippetLogic.makeSnippet(t, query)
-                    if (snippet == null) {
-                        Maybe.empty<Pair<String, TextSnippet>>()
-                    } else {
-                        Maybe.just(Pair(itemKey, snippet))
-                    }
-                }
+                text.map { t -> SnippetResult(itemKey, SnippetLogic.makeSnippet(t, query)) }
+                    .defaultIfEmpty(SnippetResult(itemKey, null))
             }
             .subscribeOn(Schedulers.io())
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe(
-                { (itemKey, snippet) -> onSnippet(itemKey, snippet) },
-                { e -> Log.d("zotero", "PDF snippets failed: ${e.message}") },
+                { result ->
+                    done++
+                    result.snippet?.let { onSnippet(result.itemKey, it) }
+                    onProgress(done, total)
+                },
+                { e ->
+                    Log.d("zotero", "PDF snippets failed: ${e.message}")
+                    onDone()
+                },
                 { onDone() }
             )
     }

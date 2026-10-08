@@ -36,6 +36,10 @@ import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
 import com.mickstarify.zooforzotero.adapters.LibraryListInteractionListener
 import com.mickstarify.zooforzotero.adapters.LibraryListRecyclerViewAdapter
 import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
+import com.mickstarify.zooforzotero.search.SearchProgress
+import android.view.KeyEvent
+import android.widget.ProgressBar
+import android.widget.TextView
 import com.mickstarify.zooforzotero.thumbnails.ThumbnailSizing
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -59,6 +63,10 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     lateinit var pdfThumbnailLoader: PdfThumbnailLoader
 
     private var listAdapter: LibraryListRecyclerViewAdapter? = null
+
+    // Progress window for searches inside PDFs.
+    private var progressDialog: androidx.appcompat.app.AlertDialog? = null
+    private var searchMenuItem: MenuItem? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -99,6 +107,7 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
 
         val searchManager =
             (requireActivity() as LibraryActivity).getSystemService(Context.SEARCH_SERVICE) as SearchManager
+        searchMenuItem = menu.findItem(R.id.search)
         searchView = menu.findItem(R.id.search).actionView as SearchView
         searchView.apply {
             setSearchableInfo(searchManager.getSearchableInfo((requireActivity() as LibraryActivity).componentName))
@@ -162,6 +171,24 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         val swipeRefresh =
             requireView().findViewById<SwipeRefreshLayout>(R.id.library_swipe_refresh)
         swipeRefresh.setOnRefreshListener(this)
+        viewModel.getSearchProgress().observe(viewLifecycleOwner) { progress ->
+            showSearchProgress(progress)
+        }
+
+        // "23 results · matches in 12 PDFs" under the title.
+        viewModel.getSearchSummary().observe(viewLifecycleOwner) { summary ->
+            (requireActivity() as androidx.appcompat.app.AppCompatActivity).supportActionBar?.subtitle = summary
+        }
+
+        // Act only on new requests (the last one is re-delivered when the screen is rebuilt).
+        var handledClears = viewModel.getClearSearchBoxRequests().value ?: 0
+        viewModel.getClearSearchBoxRequests().observe(viewLifecycleOwner) { count ->
+            if (count != null && count > handledClears) {
+                handledClears = count
+                clearSearchBox()
+            }
+        }
+
         viewModel.getSnippets().observe(viewLifecycleOwner) { snippets ->
             listAdapter?.let { adapter ->
                 adapter.snippets = snippets
@@ -245,6 +272,71 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
             menuItem.setIcon(R.drawable.ic_view_grid_white_24)
             menuItem.setTitle(R.string.gallery_view)
         }
+    }
+
+    /**
+     * Shows, updates or closes the progress window. While it's open, the rest of the
+     * screen can't be used; its Cancel button (or the back button) stops the search.
+     */
+    private fun showSearchProgress(progress: SearchProgress?) {
+        if (progress == null) {
+            progressDialog?.dismiss()
+            progressDialog = null
+            return
+        }
+        val dialog = progressDialog ?: createProgressDialog().also { progressDialog = it }
+        val bar = dialog.findViewById<ProgressBar>(R.id.progressBar_search)
+        val percent = progress.percent()
+        if (percent == null) {
+            bar?.isIndeterminate = true
+        } else {
+            bar?.isIndeterminate = false
+            bar?.progress = percent
+        }
+        dialog.findViewById<TextView>(R.id.textView_search_progress_status)?.text = progress.message()
+        dialog.findViewById<TextView>(R.id.textView_search_progress_matches)?.apply {
+            val line = progress.matchesLine()
+            visibility = if (line == null) View.GONE else View.VISIBLE
+            text = line
+        }
+    }
+
+    private fun createProgressDialog(): androidx.appcompat.app.AlertDialog {
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle("Searching")
+            .setView(R.layout.search_progress_dialog)
+            .setCancelable(false)
+            .setNegativeButton("Cancel") { _, _ -> viewModel.requestSearchCancel() }
+            .setOnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                    viewModel.requestSearchCancel()
+                    true
+                } else {
+                    keyCode == KeyEvent.KEYCODE_BACK   // swallow the key-down too
+                }
+            }
+            .create()
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.setOnDismissListener { if (progressDialog === dialog) progressDialog = null }
+        dialog.show()   // views inside exist only after show()
+        return dialog
+    }
+
+    /** Empties and closes the search box (after Cancel). */
+    private fun clearSearchBox() {
+        if (::searchView.isInitialized) {
+            searchView.setQuery("", false)
+            searchView.clearFocus()
+        }
+        searchMenuItem?.collapseActionView()
+    }
+
+    override fun onDestroyView() {
+        // Avoid a leaked window; the open search re-shows it when the screen is rebuilt.
+        progressDialog?.setOnDismissListener(null)
+        progressDialog?.dismiss()
+        progressDialog = null
+        super.onDestroyView()
     }
 
     override fun onItemOpen(item: Item) {

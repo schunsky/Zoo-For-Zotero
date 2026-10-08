@@ -14,6 +14,8 @@ import com.mickstarify.zooforzotero.ZoteroStorage.Database.Collection
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.GroupInfo
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
 import com.mickstarify.zooforzotero.search.FullTextSearchLogic
+import com.mickstarify.zooforzotero.search.SearchProgress
+import com.mickstarify.zooforzotero.search.SearchSummary
 import com.mickstarify.zooforzotero.search.SnippetFormatter
 import com.mickstarify.zooforzotero.search.SnippetLogic
 import io.reactivex.rxjava3.disposables.Disposable
@@ -146,6 +148,8 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
         snippetRequest?.dispose()
         snippetRequest = null
         matchCounts.clear()
+        libraryListViewModel.setSearchProgress(null)
+        libraryListViewModel.setSearchSummary(null)
         if (snippets.isNotEmpty()) {
             snippets.clear()
             libraryListViewModel.setSnippets(emptyMap())
@@ -171,41 +175,85 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
         if (!FullTextSearchLogic.shouldSearch(query, model.preferences.shouldSearchInsidePdfs())) return
         val shownKeys = localResults.filter { it.isItem() }.map { it.getItem().itemKey }.toSet()
         val search = Runnable {
-            insidePdfRequest = model.searchInsidePdfs(query, shownKeys) { extra ->
-                if (query != latestQuery || extra.isEmpty()) return@searchInsidePdfs
-                Log.d("zotero", "search inside PDFs added ${extra.size} results for $query")
-                libraryListViewModel.setItems(localResults + extra.map { ListEntry(it.first) })
-
-                // Then fill in the words around each match, one PDF at a time.
-                val pdfHits = extra.mapNotNull { (item, pdfKey) -> pdfKey?.let { item.itemKey to it } }
-                snippetRequest = model.loadPdfSnippets(
-                    query,
-                    pdfHits,
-                    onSnippet = { itemKey, snippet ->
-                        if (query == latestQuery) {
-                            matchCounts[itemKey] = snippet.matchCount
-                            snippets[itemKey] = SnippetFormatter.format(snippet, SnippetLogic.pdfLabel(snippet))
-                            libraryListViewModel.setSnippets(HashMap(snippets))
-                        }
-                    },
-                    onDone = {
-                        // Re-sort the PDF results once, when every count is in, so the
-                        // list doesn't jump around while the lines are filling in.
-                        if (query == latestQuery &&
-                            model.preferences.shouldSortPdfResultsByMatches() &&
-                            matchCounts.isNotEmpty()
-                        ) {
-                            val byKey = extra.associateBy { it.first.itemKey }
-                            val sorted = SnippetLogic.sortByMatchCount(byKey.keys.toList(), matchCounts)
-                                .mapNotNull { byKey[it]?.first }
-                            libraryListViewModel.setItems(localResults + sorted.map { ListEntry(it) })
-                        }
-                    }
-                )
-            }
+            // From here until the search finishes, the progress window blocks the screen.
+            libraryListViewModel.setSearchProgress(SearchProgress(SearchProgress.Phase.ASKING_SERVER))
+            insidePdfRequest = model.searchInsidePdfs(
+                query,
+                shownKeys,
+                onResult = { extra, pdfsWithMatches ->
+                    if (query == latestQuery) onServerAnswered(query, localResults, extra, pdfsWithMatches)
+                },
+                onError = {
+                    // Offline or zotero.org unreachable: keep the normal results.
+                    if (query == latestQuery) finishSearch(localResults.size, null)
+                }
+            )
+            if (insidePdfRequest == null) finishSearch(localResults.size, null)
         }
         pendingInsidePdfSearch = search
         insidePdfHandler.postDelayed(search, 700)
+    }
+
+    private fun onServerAnswered(
+        query: String,
+        localResults: List<ListEntry>,
+        extra: List<Pair<Item, String?>>,
+        pdfsWithMatches: Int
+    ) {
+        Log.d("zotero", "search inside PDFs: ${extra.size} extra results, $pdfsWithMatches PDFs with matches")
+        val allResults = localResults + extra.map { ListEntry(it.first) }
+        if (extra.isNotEmpty()) libraryListViewModel.setItems(allResults)
+
+        // Then fill in the words around each match, one PDF at a time.
+        val pdfHits = extra.mapNotNull { (item, pdfKey) -> pdfKey?.let { item.itemKey to it } }
+        if (pdfHits.isEmpty()) {
+            finishSearch(allResults.size, pdfsWithMatches)
+            return
+        }
+        snippetRequest = model.loadPdfSnippets(
+            query,
+            pdfHits,
+            onProgress = { done, total ->
+                if (query == latestQuery) {
+                    libraryListViewModel.setSearchProgress(
+                        SearchProgress(SearchProgress.Phase.READING_TEXT, done, total, pdfsWithMatches)
+                    )
+                }
+            },
+            onSnippet = { itemKey, snippet ->
+                if (query == latestQuery) {
+                    matchCounts[itemKey] = snippet.matchCount
+                    snippets[itemKey] = SnippetFormatter.format(snippet, SnippetLogic.pdfLabel(snippet))
+                    libraryListViewModel.setSnippets(HashMap(snippets))
+                }
+            },
+            onDone = {
+                if (query == latestQuery) {
+                    // Re-sort the PDF results once, when every count is in.
+                    if (model.preferences.shouldSortPdfResultsByMatches() && matchCounts.isNotEmpty()) {
+                        val byKey = extra.associateBy { it.first.itemKey }
+                        val sorted = SnippetLogic.sortByMatchCount(byKey.keys.toList(), matchCounts)
+                            .mapNotNull { byKey[it]?.first }
+                        libraryListViewModel.setItems(localResults + sorted.map { ListEntry(it) })
+                    }
+                    finishSearch(allResults.size, pdfsWithMatches)
+                }
+            }
+        )
+        if (snippetRequest == null) finishSearch(allResults.size, pdfsWithMatches)
+    }
+
+    /** Closes the progress window and shows e.g. "23 results · matches in 12 PDFs". */
+    private fun finishSearch(results: Int, pdfsWithMatches: Int?) {
+        libraryListViewModel.setSearchProgress(null)
+        libraryListViewModel.setSearchSummary(SearchSummary.resultLine(results, pdfsWithMatches))
+    }
+
+    /** Cancel in the progress window (or the back button): stop, empty the search box, show the library. */
+    private fun cancelSearch() {
+        Log.d("zotero", "search cancelled")
+        closeQuery()
+        libraryListViewModel.requestClearSearchBox()
     }
 
     override fun closeQuery() {
@@ -270,6 +318,7 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
 
         Log.d("zotero", "setting items ${entries.size}")
         libraryListViewModel.setItems(entries)
+        libraryListViewModel.setSearchSummary(SearchSummary.resultLine(entries.size, null))
         addAbstractSnippets(query, entries)
         scheduleInsidePdfSearch(query, entries)
     }
@@ -408,6 +457,7 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
     override fun setCollection(collectionKey: String, fromNavigationDrawer: Boolean) {
         /*SetCollection is the method used to display items on the listView. It
         * has to get the data, then sort it, then provide it to the view.*/
+        libraryListViewModel.setSearchSummary(null)   // leaving search results
         if (!model.isLoaded()) {
             Log.e("zotero", "tried to change collection before fully loaded!")
             return
@@ -536,6 +586,15 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
         libraryListViewModel.getLibraryFilterText().observe(view) {
             Log.d("zotero", "got filter text $it")
             filterEntries(it)
+        }
+        // Act only on presses made after this point (LiveData re-delivers its last
+        // value when the screen is rebuilt, e.g. after rotating the phone).
+        var handledCancels = libraryListViewModel.getSearchCancelRequests().value ?: 0
+        libraryListViewModel.getSearchCancelRequests().observe(view) { count ->
+            if (count != null && count > handledCancels) {
+                handledCancels = count
+                cancelSearch()
+            }
         }
     }
 
