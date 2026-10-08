@@ -25,6 +25,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import com.getbase.floatingactionbutton.AddFloatingActionButton
 import com.getbase.floatingactionbutton.FloatingActionButton
 import com.getbase.floatingactionbutton.FloatingActionsMenu
 import com.mickstarify.zooforzotero.LibraryActivity.LibraryActivity
@@ -72,6 +73,9 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
 
     /** Is the search box open? Search results always use the list view. */
     private var searchBoxOpen = false
+
+    /** Is the "+" menu open? Its buttons fan out where the search button sits. */
+    private var plusMenuOpen = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -216,6 +220,24 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
             fab.collapse()
             openSearchBox()
         }
+        // Keep it centred directly above the "+" button (re-done after every layout,
+        // e.g. on rotation; runs before drawing, so it never visibly jumps).
+        fab.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> alignSearchButton() }
+        requireView().findViewById<View>(R.id.fab_search)
+            .addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> alignSearchButton() }
+        // Step aside while the "+" menu is open.
+        fab.setOnFloatingActionsMenuUpdateListener(object :
+            FloatingActionsMenu.OnFloatingActionsMenuUpdateListener {
+            override fun onMenuExpanded() {
+                plusMenuOpen = true
+                updateSearchButtonVisibility()
+            }
+
+            override fun onMenuCollapsed() {
+                plusMenuOpen = false
+                updateSearchButtonVisibility()
+            }
+        })
 
         val fabZoteroSave =
             requireView().findViewById<FloatingActionButton>(R.id.fab_action_zotero_save)
@@ -277,10 +299,40 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     /** Search box opened or closed: switch list/gallery and show/hide the buttons to match. */
     private fun setSearchBoxOpen(open: Boolean) {
         searchBoxOpen = open
-        view?.findViewById<View>(R.id.fab_search)?.visibility =
-            if (LibraryViewMode.showSearchButton(open)) View.VISIBLE else View.GONE
+        updateSearchButtonVisibility()
         viewToggleMenuItem?.isVisible = LibraryViewMode.showViewSwitch(open)
         applyViewMode()
+    }
+
+    private fun updateSearchButtonVisibility() {
+        // INVISIBLE (not GONE) keeps its size known, so it can be positioned while hidden.
+        view?.findViewById<View>(R.id.fab_search)?.visibility =
+            if (LibraryViewMode.showSearchButton(searchBoxOpen, plusMenuOpen)) View.VISIBLE else View.INVISIBLE
+    }
+
+    /** Centres the search button directly above the "+" button, using their on-screen sizes. */
+    private fun alignSearchButton() {
+        val root = view ?: return
+        val search = root.findViewById<View>(R.id.fab_search) ?: return
+        val children = (0 until fab.childCount).map { fab.getChildAt(it) }
+        val plus = children.firstOrNull { it is AddFloatingActionButton } ?: return
+        if (plus.width == 0 || search.width == 0) return
+        // The "+" menu lays out its buttons at their open positions (closed = shifted down),
+        // so the gap between "+" and the button above it is the menu's own spacing.
+        val lowestMenuButton = children
+            .filter { it !== plus && it is FloatingActionButton }
+            .maxByOrNull { it.top }
+        val (x, y) = LibraryViewMode.placeSearchButton(
+            plusLeft = (fab.left + plus.left).toFloat(),
+            plusTop = (fab.top + plus.top).toFloat(),
+            plusWidth = plus.width,
+            searchWidth = search.width,
+            searchHeight = search.height,
+            menuGap = lowestMenuButton?.let { plus.top - it.bottom },
+            fallbackGap = (8 * resources.displayMetrics.density).toInt()
+        )
+        if (search.x != x) search.x = x
+        if (search.y != y) search.y = y
     }
 
     /**

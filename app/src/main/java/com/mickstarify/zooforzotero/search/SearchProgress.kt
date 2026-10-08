@@ -65,6 +65,30 @@ object LibraryViewMode {
     /** The list/gallery switch is hidden while searching (it couldn't take effect anyway). */
     fun showViewSwitch(searchBoxOpen: Boolean): Boolean = !searchBoxOpen
 
-    /** The floating search button is hidden while the search box is already open. */
-    fun showSearchButton(searchBoxOpen: Boolean): Boolean = !searchBoxOpen
+    /**
+     * The floating search button sits just above the "+" button. It's hidden while the
+     * search box is already open, and while the "+" menu is open (its buttons fan out
+     * upwards, into the same spot).
+     */
+    fun showSearchButton(searchBoxOpen: Boolean, plusMenuOpen: Boolean): Boolean =
+        !searchBoxOpen && !plusMenuOpen
+
+    /**
+     * Where to put the search button (its top-left corner, in the screen layout's pixels)
+     * so it sits directly above the "+" button, centred on it.
+     *
+     * [plusLeft]/[plusTop] are the "+" button's position in that layout. [menuGap] is the
+     * gap the "+" menu leaves between its own buttons, measured on screen, so the search
+     * button looks like part of the same column; [fallbackGap] is used if it can't be measured.
+     */
+    fun placeSearchButton(
+        plusLeft: Float, plusTop: Float, plusWidth: Int,
+        searchWidth: Int, searchHeight: Int,
+        menuGap: Int?, fallbackGap: Int
+    ): Pair<Float, Float> {
+        val gap = menuGap?.takeIf { it >= 0 } ?: fallbackGap
+        val x = plusLeft + plusWidth / 2f - searchWidth / 2f
+        val y = plusTop - gap - searchHeight
+        return Pair(x, y)
+    }
 }

@@ -58,19 +58,6 @@
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 
-    <!-- Floating search button: opens the search box. -->
-    <com.getbase.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fab_search"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginBottom="16dp"
-        android:contentDescription="@string/search_title"
-        android:tint="#fff"
-        app:fab_icon="@drawable/baseline_search_24"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-
     <com.getbase.floatingactionbutton.FloatingActionsMenu
         android:id="@+id/fab_add_item"
         android:layout_width="0dp"
@@ -101,5 +88,20 @@
             app:fab_title="Scan ISBN" />
 
     </com.getbase.floatingactionbutton.FloatingActionsMenu>
+
+    <!-- Floating search button, directly above the "+" button. The code centres it on the
+         "+" button once it's measured; these margins only give a close starting point.
+         Declared after the "+" menu so it's on top and gets its own taps. -->
+    <com.getbase.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_search"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="88dp"
+        android:contentDescription="@string/search_title"
+        android:tint="#fff"
+        app:fab_icon="@drawable/baseline_search_24"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
