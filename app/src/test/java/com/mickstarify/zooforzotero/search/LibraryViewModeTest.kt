@@ -1,27 +1,77 @@
 package com.mickstarify.zooforzotero.search
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 
 class LibraryViewModeTest {
 
-    // Decision table: chosen view x search box state.
-    @ParameterizedTest(name = "gallery chosen={0}, search open={1} -> gallery={2}, switch={3}, button={4}")
-    @CsvSource(
-        "true,  false, true,  true,  true",   // browsing in gallery
-        "true,  true,  false, false, false",  // searching from gallery: list for results
-        "false, false, false, true,  true",   // browsing in list
-        "false, true,  false, false, false",  // searching from list
-    )
-    fun `screen layout follows the search box`(
-        galleryChosen: Boolean, searchOpen: Boolean,
-        gallery: Boolean, viewSwitch: Boolean, searchButton: Boolean
-    ) {
-        assertEquals(gallery, LibraryViewMode.showGallery(galleryChosen, searchOpen))
-        assertEquals(viewSwitch, LibraryViewMode.showViewSwitch(searchOpen))
-        assertEquals(searchButton, LibraryViewMode.showSearchButton(searchOpen, plusMenuOpen = false))
+    // ---- Which view is shown: scenarios, step by step ----
+
+    @Test
+    fun `starting a search from gallery shows the list`() {
+        val browsing = LibraryViewState(galleryChosen = true)
+        assertTrue(browsing.showsGallery)
+        assertFalse(browsing.searchOpened().showsGallery)
+    }
+
+    @Test
+    fun `gallery is still possible during a search`() {
+        val searching = LibraryViewState(galleryChosen = true).searchOpened()
+        assertTrue(searching.toggled().showsGallery)
+    }
+
+    @Test
+    fun `gallery is possible during a search started from list view too`() {
+        val searching = LibraryViewState(galleryChosen = false).searchOpened()
+        val switched = searching.toggled()
+        assertTrue(switched.showsGallery)
+        assertTrue(switched.galleryChosen, "the switch is remembered as the chosen view")
+    }
+
+    @Test
+    fun `closing the search returns to the chosen view`() {
+        val fromGallery = LibraryViewState(galleryChosen = true).searchOpened().searchClosed()
+        assertTrue(fromGallery.showsGallery)
+        val fromList = LibraryViewState(galleryChosen = false).searchOpened().searchClosed()
+        assertFalse(fromList.showsGallery)
+    }
+
+    @Test
+    fun `a choice made during a search is kept after it`() {
+        // gallery -> search (list) -> button: gallery -> button: list -> close search
+        val end = LibraryViewState(galleryChosen = true)
+            .searchOpened().toggled().toggled().searchClosed()
+        assertFalse(end.showsGallery, "last choice was list, so list stays")
+        assertFalse(end.galleryChosen)
+    }
+
+    @Test
+    fun `switching to gallery during a search survives the search closing`() {
+        val end = LibraryViewState(galleryChosen = true).searchOpened().toggled().searchClosed()
+        assertTrue(end.showsGallery)
+    }
+
+    @Test
+    fun `the button always flips what is shown, searching or not`() {
+        val states = listOf(
+            LibraryViewState(galleryChosen = true),
+            LibraryViewState(galleryChosen = false),
+            LibraryViewState(galleryChosen = true).searchOpened(),
+            LibraryViewState(galleryChosen = false).searchOpened(),
+        )
+        for (state in states) {
+            assertEquals(!state.showsGallery, state.toggled().showsGallery, "from $state")
+        }
+    }
+
+    @Test
+    fun `opening the search box again changes nothing more`() {
+        val once = LibraryViewState(galleryChosen = true).searchOpened()
+        assertEquals(once, once.searchOpened())
     }
 
     @ParameterizedTest(name = "search open={0}, plus menu open={1} -> search button={2}")

@@ -58,13 +58,6 @@ object SearchSummary {
 
 /** What the library screen shows, depending on the chosen view and whether the search box is open. */
 object LibraryViewMode {
-    /** Search results always use the list: context lines and match counts only fit there. */
-    fun showGallery(galleryChosen: Boolean, searchBoxOpen: Boolean): Boolean =
-        galleryChosen && !searchBoxOpen
-
-    /** The list/gallery switch is hidden while searching (it couldn't take effect anyway). */
-    fun showViewSwitch(searchBoxOpen: Boolean): Boolean = !searchBoxOpen
-
     /**
      * The floating search button sits just above the "+" button. It's hidden while the
      * search box is already open, and while the "+" menu is open (its buttons fan out
@@ -91,4 +84,29 @@ object LibraryViewMode {
         val y = plusTop - gap - searchHeight
         return Pair(x, y)
     }
+}
+
+/**
+ * Which view the library shows: the view the user chose, plus a temporary switch that
+ * shows search results as a list (where context lines and match counts fit).
+ */
+data class LibraryViewState(
+    /** The user's chosen view, saved in the settings. */
+    val galleryChosen: Boolean,
+    /** Search results are being shown as a list, regardless of the chosen view. */
+    val listForSearch: Boolean = false
+) {
+    val showsGallery: Boolean get() = galleryChosen && !listForSearch
+
+    /** Opening the search box: results appear as a list. The chosen view is kept. */
+    fun searchOpened() = copy(listForSearch = true)
+
+    /** Closing the search box: back to the chosen view. */
+    fun searchClosed() = copy(listForSearch = false)
+
+    /**
+     * The list/gallery button: always works, even while searching. It switches what's
+     * shown and remembers that as the chosen view.
+     */
+    fun toggled() = LibraryViewState(galleryChosen = !showsGallery, listForSearch = false)
 }

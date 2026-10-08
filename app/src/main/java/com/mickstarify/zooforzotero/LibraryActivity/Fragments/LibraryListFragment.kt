@@ -39,6 +39,7 @@ import com.mickstarify.zooforzotero.adapters.LibraryListRecyclerViewAdapter
 import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 import com.mickstarify.zooforzotero.search.SearchProgress
 import com.mickstarify.zooforzotero.search.LibraryViewMode
+import com.mickstarify.zooforzotero.search.LibraryViewState
 import android.view.KeyEvent
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -71,8 +72,14 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     private var searchMenuItem: MenuItem? = null
     private var viewToggleMenuItem: MenuItem? = null
 
-    /** Is the search box open? Search results always use the list view. */
+    /** Is the search box open? */
     private var searchBoxOpen = false
+
+    /** Search results are shown as a list until the list/gallery button is used. */
+    private var listForSearch = false
+
+    /** The chosen view (saved in the settings) plus the temporary list-for-search switch. */
+    private fun viewState() = LibraryViewState(preferenceManager.isGalleryView(), listForSearch)
 
     /** Is the "+" menu open? Its buttons fan out where the search button sits. */
     private var plusMenuOpen = false
@@ -102,6 +109,7 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         super.onCreateOptionsMenu(menu, inflater)
         viewToggleMenuItem = menu.findItem(R.id.toggle_gallery_view)
         searchBoxOpen = false   // a freshly built menu starts with the search box closed
+        listForSearch = false
         updateViewToggle(viewToggleMenuItem)
 
         val menuItem = menu.findItem(R.id.search)
@@ -274,7 +282,10 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == R.id.toggle_gallery_view) {
-            preferenceManager.setGalleryView(!preferenceManager.isGalleryView())
+            // Always allowed, also while searching: switches what's shown and remembers it.
+            val next = viewState().toggled()
+            preferenceManager.setGalleryView(next.galleryChosen)
+            listForSearch = next.listForSearch
             applyViewMode()
             updateViewToggle(item)
             return true
@@ -299,8 +310,11 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     /** Search box opened or closed: switch list/gallery and show/hide the buttons to match. */
     private fun setSearchBoxOpen(open: Boolean) {
         searchBoxOpen = open
+        // Opening shows results as a list; closing returns to the chosen view.
+        val next = if (open) viewState().searchOpened() else viewState().searchClosed()
+        listForSearch = next.listForSearch
         updateSearchButtonVisibility()
-        viewToggleMenuItem?.isVisible = LibraryViewMode.showViewSwitch(open)
+        updateViewToggle(viewToggleMenuItem)
         applyViewMode()
     }
 
@@ -343,7 +357,7 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     private fun applyViewMode() {
         val recyclerView = view?.findViewById<RecyclerView>(R.id.recyclerView) ?: return
         val adapter = listAdapter ?: return
-        val gallery = LibraryViewMode.showGallery(preferenceManager.isGalleryView(), searchBoxOpen)
+        val gallery = viewState().showsGallery
         if (adapter.galleryMode == gallery && recyclerView.layoutManager != null) return
         adapter.galleryMode = gallery
         recyclerView.layoutManager = if (gallery) {
@@ -360,7 +374,7 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     /** The toolbar button offers the *other* view: grid icon in list view, list icon in gallery. */
     private fun updateViewToggle(menuItem: MenuItem?) {
         menuItem ?: return
-        if (preferenceManager.isGalleryView()) {
+        if (viewState().showsGallery) {
             menuItem.setIcon(R.drawable.ic_view_list_white_24)
             menuItem.setTitle(R.string.list_view)
         } else {
