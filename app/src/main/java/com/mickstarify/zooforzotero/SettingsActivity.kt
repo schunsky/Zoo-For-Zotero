@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.text.InputType
+import android.view.View
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -16,6 +17,7 @@ import androidx.preference.SwitchPreference
 import com.mickstarify.zooforzotero.LibraryActivity.WebDAV.WebDAVSetup
 import com.mickstarify.zooforzotero.ZoteroStorage.AttachmentStorageManager
 import com.mickstarify.zooforzotero.ZoteroStorage.STORAGE_ACCESS_REQUEST
+import com.mickstarify.zooforzotero.search.FullTextDownloader
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -26,6 +28,9 @@ class SettingsActivity : AppCompatActivity() {
 
     @Inject
     lateinit var myPreferenceManager: PreferenceManager
+
+    @Inject
+    lateinit var fullTextDownloader: FullTextDownloader
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -80,6 +85,15 @@ class SettingsActivity : AppCompatActivity() {
 
         }
 
+        override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+            super.onViewCreated(view, savedInstanceState)
+            // Live progress of "Download text of all PDFs" under the button.
+            val downloader = (requireActivity() as SettingsActivity).fullTextDownloader
+            downloader.status.observe(viewLifecycleOwner) { message ->
+                findPreference<Preference>("download_all_pdf_text")?.summary = message
+            }
+        }
+
         override fun onResume() {
             super.onResume()
             // Set up a listener whenever a key changes
@@ -95,7 +109,10 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         override fun onPreferenceTreeClick(preference: Preference): Boolean {
-            if (preference.key == "configure_webdav") {
+            if (preference.key == "download_all_pdf_text") {
+                (requireActivity() as SettingsActivity).fullTextDownloader.toggle()
+                return true
+            } else if (preference.key == "configure_webdav") {
                 val intent = Intent(requireContext(), WebDAVSetup::class.java)
                 startActivity(intent)
                 return true

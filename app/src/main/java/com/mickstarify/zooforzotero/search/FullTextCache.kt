@@ -9,8 +9,10 @@ import java.util.zip.GZIPOutputStream
 /**
  * Keeps the text of PDFs downloaded from zotero.org on the phone (compressed),
  * so each PDF's text is downloaded once, not on every search.
- * How long and how much is kept come from the user's settings, read on every
- * use, so a changed setting applies straight away. Call from a background thread.
+ * Text that isn't used for the chosen number of days is removed, and the least
+ * recently used text goes first when the space limit is reached. Settings are
+ * read on every use, so a changed setting applies straight away.
+ * Call from a background thread.
  */
 class FullTextCache(
     context: Context,
@@ -30,7 +32,9 @@ class FullTextCache(
             return null
         }
         return try {
-            GZIPInputStream(file.inputStream()).bufferedReader().use { it.readText() }
+            val text = GZIPInputStream(file.inputStream()).bufferedReader().use { it.readText() }
+            file.setLastModified(System.currentTimeMillis())   // "used now": counts from last use
+            text
         } catch (e: IOException) {
             file.delete()
             null
@@ -49,7 +53,18 @@ class FullTextCache(
         trim()
     }
 
-    /** Removes expired text and, if still over the size limit, the oldest text. */
+    /** Is this PDF's text saved on the phone (and not due for removal)? */
+    fun isSaved(attachmentKey: String): Boolean {
+        val file = fileFor(attachmentKey)
+        return file.isFile &&
+            !CacheEviction.isExpired(file.lastModified(), System.currentTimeMillis(), maxAgeDays())
+    }
+
+    /** Space used by saved text, in bytes. */
+    fun usedBytes(): Long =
+        dir.listFiles { f -> f.name.endsWith(".txt.gz") }?.sumOf { it.length() } ?: 0L
+
+    /** Removes text not used for too long and, if still over the space limit, the least recently used. */
     fun trim() {
         val files = dir.listFiles { f -> f.name.endsWith(".txt.gz") } ?: return
         val entries = files.map { CacheEntry(it.name, it.length(), it.lastModified()) }

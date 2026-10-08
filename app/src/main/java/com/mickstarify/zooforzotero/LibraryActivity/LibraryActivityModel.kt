@@ -37,6 +37,7 @@ import com.mickstarify.zooforzotero.search.FullTextCache
 import com.mickstarify.zooforzotero.search.FullTextSearchLogic
 import com.mickstarify.zooforzotero.search.NetworkUtil
 import com.mickstarify.zooforzotero.search.SnippetLogic
+import com.mickstarify.zooforzotero.search.SnippetPlanning
 import com.mickstarify.zooforzotero.search.TextSnippet
 import io.reactivex.rxjava3.core.Maybe
 import io.reactivex.rxjava3.core.Observable
@@ -376,9 +377,11 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
     }
 
     /**
-     * For each (item key, PDF key) in [pdfHits], gets the PDF's text (from the phone's
-     * cache, or from zotero.org if the setting and network allow) and reports the
-     * words around [query] via [onSnippet] on the main thread, one result at a time.
+     * For each (item key, PDF key) in [pdfHits], finds the words around [query] in the
+     * PDF's text and reports them via [onSnippet] on the main thread, one at a time.
+     * Text already saved on the phone is always used (no download). Of the rest, up to
+     * the "Downloads per search" setting are downloaded, if the setting and network
+     * allow; saved-text results come first since they're instant.
      * [onDone] runs on the main thread once every PDF has been tried.
      */
     fun loadPdfSnippets(
@@ -390,36 +393,40 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
         if (!::zoteroAPI.isInitialized) return null
         val mode = preferences.getSearchSnippetMode()
         if (mode == "OFF") return null
-        val mayDownload = SnippetLogic.mayDownloadText(mode, NetworkUtil.isUnmetered(context))
         val groupID = state.currentGroup.id
 
-        val limit = preferences.getSnippetsPerSearch()
-
-        return Observable.fromIterable(pdfHits.take(limit))
-            .doOnSubscribe { fullTextCache.trim() }   // apply changed limits before using the cache
-            .concatMapMaybe { (itemKey, pdfKey) ->
-                val download: Maybe<String> = if (mayDownload) {
+        return Observable.defer {
+            fullTextCache.trim()   // apply changed limits before using the saved text
+            val plan = SnippetPlanning.plan(
+                pdfHits,
+                isSaved = { (_, pdfKey) -> fullTextCache.isSaved(pdfKey) },
+                mayDownload = SnippetLogic.mayDownloadText(mode, NetworkUtil.isUnmetered(context)),
+                downloadLimit = preferences.getSnippetsPerSearch()
+            )
+            Log.d("zotero", "PDF snippets: ${plan.fromPhone.size} saved, ${plan.toDownload.size} to download")
+            Observable.fromIterable(plan.fromPhone.map { it to false } + plan.toDownload.map { it to true })
+        }
+            .concatMapMaybe { (hit, download) ->
+                val (itemKey, pdfKey) = hit
+                val text: Maybe<String> = if (!download) {
+                    Maybe.defer {
+                        val saved = fullTextCache.read(pdfKey)
+                        if (saved == null) Maybe.empty<String>() else Maybe.just(saved)
+                    }
+                } else {
                     zoteroAPI.getFullText(pdfKey, groupID)
-                        .doOnSuccess { text -> if (text.isNotEmpty()) fullTextCache.write(pdfKey, text) }
+                        .doOnSuccess { t -> if (t.isNotEmpty()) fullTextCache.write(pdfKey, t) }
                         .toMaybe()
                         .onErrorComplete()
-                } else {
-                    Maybe.empty()
                 }
-                val cached: Maybe<String> = Maybe.defer {
-                    val text = fullTextCache.read(pdfKey)
-                    if (text == null) Maybe.empty<String>() else Maybe.just(text)
-                }
-                cached
-                    .switchIfEmpty(download)
-                    .flatMap { text ->
-                        val snippet = SnippetLogic.makeSnippet(text, query)
-                        if (snippet == null) {
-                            Maybe.empty<Pair<String, TextSnippet>>()
-                        } else {
-                            Maybe.just(Pair(itemKey, snippet))
-                        }
+                text.flatMap { t ->
+                    val snippet = SnippetLogic.makeSnippet(t, query)
+                    if (snippet == null) {
+                        Maybe.empty<Pair<String, TextSnippet>>()
+                    } else {
+                        Maybe.just(Pair(itemKey, snippet))
                     }
+                }
             }
             .subscribeOn(Schedulers.io())
             .observeOn(AndroidSchedulers.mainThread())

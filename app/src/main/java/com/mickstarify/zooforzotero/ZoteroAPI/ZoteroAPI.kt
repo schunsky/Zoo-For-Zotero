@@ -151,6 +151,12 @@ class ZoteroAPI(
         return request.map { body -> FullTextSearchLogic.parseKeys(body.string()) }
     }
 
+    /** Keys of every item in the personal library that has extracted text on zotero.org. */
+    fun getFullTextKeys(): Single<List<String>> =
+        service.getFullTextVersions(userID, 0).map { body ->
+            com.mickstarify.zooforzotero.search.DownloadAllLogic.parseFullTextKeys(body.string())
+        }
+
     /** The text Zotero desktop extracted from [attachmentKey]'s file (fails if there is none). */
     fun getFullText(attachmentKey: String, groupID: Int = GroupInfo.NO_GROUP_ID): Single<String> {
         val request = if (groupID == GroupInfo.NO_GROUP_ID) {

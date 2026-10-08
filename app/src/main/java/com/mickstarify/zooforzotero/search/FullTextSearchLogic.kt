@@ -203,3 +203,88 @@ object CacheEviction {
     fun isExpired(modifiedMs: Long, nowMs: Long, maxAgeDays: Int): Boolean =
         maxAgeDays > 0 && nowMs - modifiedMs > maxAgeDays * DAY_MS
 }
+
+/** Which PDF results get a context line and match count during one search. */
+data class SnippetPlan<T>(
+    /** Text already saved on the phone: always used, no download needed. */
+    val fromPhone: List<T>,
+    /** Text to download now: at most the per-search download limit. */
+    val toDownload: List<T>
+)
+
+object SnippetPlanning {
+    /**
+     * Every result whose text is saved on the phone is used. Of the others, the
+     * first [downloadLimit] (in result order) are downloaded, if downloads are
+     * allowed right now. The rest get no context line this time.
+     */
+    fun <T> plan(hits: List<T>, isSaved: (T) -> Boolean, mayDownload: Boolean, downloadLimit: Int): SnippetPlan<T> {
+        val (saved, notSaved) = hits.partition(isSaved)
+        val download = if (mayDownload) notSaved.take(downloadLimit.coerceAtLeast(0)) else emptyList()
+        return SnippetPlan(saved, download)
+    }
+}
+
+/** Rules and messages for "Download text of all PDFs". */
+object DownloadAllLogic {
+    enum class Stop { NONE, CANCELLED, NOT_ON_WIFI, SPACE_FULL }
+
+    /** Keep some room below the limit so text saved during normal searches still fits. */
+    const val HEADROOM_PERCENT = 5
+
+    /**
+     * Item keys from zotero.org's full-text list (`{"ABCD1234": 512, ...}`).
+     * Only 8-character Zotero keys are accepted.
+     */
+    fun parseFullTextKeys(json: String): List<String> =
+        Regex("\"([A-Z0-9]{8})\"\\s*:\\s*\\d+").findAll(json).map { it.groupValues[1] }.distinct().toList()
+
+    fun keysToDownload(allKeys: List<String>, isSaved: (String) -> Boolean): List<String> =
+        allKeys.filterNot(isSaved)
+
+    /** Checked before every download. Cancelling wins, then Wi-Fi, then space. */
+    fun stopReason(cancelled: Boolean, onWifi: Boolean, usedBytes: Long, maxBytes: Long): Stop = when {
+        cancelled -> Stop.CANCELLED
+        !onWifi -> Stop.NOT_ON_WIFI
+        usedBytes >= maxBytes * (100 - HEADROOM_PERCENT) / 100 -> Stop.SPACE_FULL
+        else -> Stop.NONE
+    }
+
+    fun megabytes(bytes: Long): String = "${(bytes + 512 * 1024) / (1024 * 1024)} MB"
+
+    // ---- Messages shown under the button ----
+
+    const val IDLE = "Saves the text of every PDF on this phone (Wi-Fi only), so every search " +
+        "result gets its context line and match count. Tap to start."
+
+    fun checking() = "Checking which PDFs have text on zotero.org…"
+
+    fun progress(saved: Int, total: Int, usedBytes: Long) =
+        "Downloading… $saved of $total PDFs saved (${megabytes(usedBytes)}). Tap to stop."
+
+    fun stopped(reason: Stop, saved: Int, total: Int, maxBytes: Long): String = when (reason) {
+        Stop.CANCELLED -> "Stopped. $saved of $total PDFs saved. Tap to continue."
+        Stop.NOT_ON_WIFI -> "Paused: not on Wi-Fi. $saved of $total PDFs saved. Tap to continue on Wi-Fi."
+        Stop.SPACE_FULL -> "Stopped: 'Space for saved text' (${megabytes(maxBytes)}) is full. " +
+            "$saved of $total PDFs saved. Raise the limit, then tap to continue."
+        Stop.NONE -> "$saved of $total PDFs saved."
+    }
+
+    fun finished(total: Int, failed: Int, usedBytes: Long, forgetAfterDays: Int): String {
+        val base = if (failed == 0) {
+            "Done: text of all $total PDFs saved (${megabytes(usedBytes)})."
+        } else {
+            "Done: ${total - failed} of $total PDFs saved (${megabytes(usedBytes)}); " +
+                "$failed could not be downloaded. Tap to retry them."
+        }
+        val tip = if (forgetAfterDays > 0) {
+            " Text not used for $forgetAfterDays days is removed; choose 'Never' under " +
+                "'Remove saved text not used for' to keep it all."
+        } else ""
+        return base + tip
+    }
+
+    fun failedToStart(reason: String) = "Couldn't reach zotero.org ($reason). Tap to try again."
+
+    const val NOT_LOGGED_IN = "Log in to your Zotero account first."
+}

@@ -36,6 +36,13 @@ interface ZoteroAPIService {
         @Query("format") format: String
     ): Single<ResponseBody>
 
+    /* Every item with extracted text and its version: {"ABCD1234": 512, ...} */
+    @GET("users/{user}/fulltext")
+    fun getFullTextVersions(
+        @Path("user") user: String,
+        @Query("since") since: Int
+    ): Single<ResponseBody>
+
     /* The text Zotero desktop extracted from an attachment: {"content": "...", ...} */
     @GET("users/{user}/items/{itemKey}/fulltext")
     fun getFullText(

@@ -58,47 +58,6 @@
             android:title="Search as you type" />
         <SwitchPreference
             android:defaultValue="true"
-            android:key="search_inside_pdfs"
-            android:summary="Also search the text inside your PDFs on zotero.org (needs internet, and 'Sync full-text content' turned on in Zotero desktop)"
-            android:title="Search inside PDFs" />
-        <ListPreference
-            app:defaultValue="WIFI"
-            app:dependency="search_inside_pdfs"
-            app:entries="@array/search_snippets_entries"
-            app:entryValues="@array/search_snippets_values"
-            app:key="search_snippets"
-            app:title="Show text around PDF matches"
-            app:useSimpleSummaryProvider="true" />
-        <ListPreference
-            app:defaultValue="15"
-            app:dependency="search_inside_pdfs"
-            app:entries="@array/snippets_per_search_entries"
-            app:entryValues="@array/snippets_per_search_values"
-            app:key="snippets_per_search"
-            app:title="PDFs per search that get a context line"
-            app:useSimpleSummaryProvider="true" />
-        <SwitchPreference
-            android:defaultValue="false"
-            android:dependency="search_inside_pdfs"
-            android:key="sort_pdf_results_by_matches"
-            android:summary="Most matches first. Needs 'Show text around PDF matches'; results re-sort once all counts are in"
-            android:title="Sort PDF results by number of matches" />
-        <ListPreference
-            app:defaultValue="30"
-            app:entries="@array/fulltext_cache_days_entries"
-            app:entryValues="@array/fulltext_cache_days_values"
-            app:key="fulltext_cache_days"
-            app:title="Keep downloaded PDF text for"
-            app:useSimpleSummaryProvider="true" />
-        <ListPreference
-            app:defaultValue="100"
-            app:entries="@array/fulltext_cache_mb_entries"
-            app:entryValues="@array/fulltext_cache_mb_values"
-            app:key="fulltext_cache_mb"
-            app:title="Space for downloaded PDF text"
-            app:useSimpleSummaryProvider="true" />
-        <SwitchPreference
-            android:defaultValue="true"
             android:key="show_pdf_thumbnails"
             android:summary="Show the first page of PDFs that are on this device. Takes effect when the library is reopened"
             android:title="Show PDF covers" />
@@ -116,6 +75,57 @@
             android:summary="Enabling this may slow down the opening of large attachments"
             android:title="Verify attachment integrity before opening" />
 
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Search inside PDFs">
+        <SwitchPreference
+            android:defaultValue="true"
+            android:key="search_inside_pdfs"
+            android:summary="Also find words inside your PDFs, using zotero.org (needs internet, and 'Sync full-text content' turned on in Zotero desktop)"
+            android:title="Search inside PDFs" />
+        <ListPreference
+            app:defaultValue="WIFI"
+            app:dependency="search_inside_pdfs"
+            app:entries="@array/search_snippets_entries"
+            app:entryValues="@array/search_snippets_values"
+            app:key="search_snippets"
+            app:title="Show text around matches"
+            app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:defaultValue="15"
+            app:dependency="search_inside_pdfs"
+            app:entries="@array/snippets_per_search_entries"
+            app:entryValues="@array/snippets_per_search_values"
+            app:key="snippets_per_search"
+            app:summary="Download the text of up to %s per search. PDFs whose text is already saved are always included"
+            app:title="Downloads per search" />
+        <SwitchPreference
+            android:defaultValue="false"
+            android:dependency="search_inside_pdfs"
+            android:key="sort_pdf_results_by_matches"
+            android:summary="Most matches first. Counts come from saved text and this search's downloads; the list re-sorts once they're all in"
+            android:title="Sort by number of matches" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Saved PDF text">
+        <Preference
+            app:key="download_all_pdf_text"
+            app:summary="Saves the text of every PDF on this phone (Wi-Fi only), so every search result gets its context line and match count. Tap to start."
+            app:title="Download text of all PDFs" />
+        <ListPreference
+            app:defaultValue="30"
+            app:entries="@array/fulltext_cache_days_entries"
+            app:entryValues="@array/fulltext_cache_days_values"
+            app:key="fulltext_cache_days"
+            app:summary="%s"
+            app:title="Remove saved text not used for" />
+        <ListPreference
+            app:defaultValue="100"
+            app:entries="@array/fulltext_cache_mb_entries"
+            app:entryValues="@array/fulltext_cache_mb_values"
+            app:key="fulltext_cache_mb"
+            app:summary="Up to %s on this phone. When full, the text used least recently is removed first"
+            app:title="Space for saved text" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="Web DAV">
