@@ -38,7 +38,6 @@ import com.mickstarify.zooforzotero.adapters.LibraryListRecyclerViewAdapter
 import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 import com.mickstarify.zooforzotero.search.SearchProgress
 import com.mickstarify.zooforzotero.search.LibraryViewMode
-import android.view.inputmethod.InputMethodManager
 import android.view.KeyEvent
 import android.widget.ProgressBar
 import android.widget.TextView
