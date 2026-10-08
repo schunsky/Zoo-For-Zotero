@@ -313,3 +313,9 @@ object DownloadAllLogic {
 
     const val NOT_LOGGED_IN = "Log in to your Zotero account first."
 }
+
+/** The kept result of the last "download all" run, shown under its button after a restart. */
+object LastRun {
+    /** "Last run 8 Oct 2026, 14:05 · Done: ..." ([formattedTime] in the phone's own date format). */
+    fun describe(message: String, formattedTime: String): String = "Last run $formattedTime · $message"
+}

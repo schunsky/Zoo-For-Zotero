@@ -130,6 +130,31 @@ class PdfThumbnailLoader @Inject constructor(
         }
     }
 
+    /**
+     * For "Make covers for all PDFs": makes every size of [attachment]'s cover now, unless
+     * they're already saved. Waits for the result, so call it from a background thread.
+     * Runs on the same single thread as the list's covers, so they never render at once.
+     * Covers go to disk only (not memory), so a whole library doesn't fill the memory.
+     */
+    fun makeCoversNow(attachment: Item): CoverDownloadLogic.Result =
+        executor.submit(java.util.concurrent.Callable {
+            val keys = CoverSize.values().mapNotNull { keyFor(attachment, it) }
+            if (keys.size < CoverSize.values().size) return@Callable CoverDownloadLogic.Result.UNREADABLE
+            if (keys.all { File(diskDir, "$it.jpg").isFile }) return@Callable CoverDownloadLogic.Result.ALREADY_MADE
+
+            val uri = attachmentStorageManager.findLocalAttachmentUri(attachment)
+                ?: return@Callable CoverDownloadLogic.Result.NOT_ON_PHONE
+            val rendered = renderFirstPage(uri, attachment.itemKey)
+            if (rendered.isEmpty()) return@Callable CoverDownloadLogic.Result.UNREADABLE
+            for ((size, bitmap) in rendered) {
+                val key = keyFor(attachment, size) ?: continue
+                writeToDisk(key, bitmap)
+                knownMissing.remove(key)   // the list will find it on disk next time
+                bitmap.recycle()
+            }
+            CoverDownloadLogic.Result.MADE
+        }).get()
+
     /** Re-check attachments that had no cover (e.g. after returning to the list). */
     fun forgetMissing() {
         knownMissing.clear()

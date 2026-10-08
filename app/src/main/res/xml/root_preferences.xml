@@ -69,6 +69,11 @@
             app:key="cloud_pdf_covers"
             app:title="PDF covers for cloud folders"
             app:useSimpleSummaryProvider="true" />
+        <Preference
+            app:dependency="show_pdf_thumbnails"
+            app:key="make_all_covers"
+            app:summary="Makes the cover of every PDF in your library that's on this phone or in your attachment folder, so the gallery shows them straight away. Tap to start."
+            app:title="Make covers for all PDFs" />
         <SwitchPreference
             android:defaultValue="false"
             android:key="check_md5sum_before_attachment_open"

@@ -18,6 +18,7 @@ import com.mickstarify.zooforzotero.LibraryActivity.WebDAV.WebDAVSetup
 import com.mickstarify.zooforzotero.ZoteroStorage.AttachmentStorageManager
 import com.mickstarify.zooforzotero.ZoteroStorage.STORAGE_ACCESS_REQUEST
 import com.mickstarify.zooforzotero.search.FullTextDownloader
+import com.mickstarify.zooforzotero.thumbnails.CoverDownloader
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -31,6 +32,9 @@ class SettingsActivity : AppCompatActivity() {
 
     @Inject
     lateinit var fullTextDownloader: FullTextDownloader
+
+    @Inject
+    lateinit var coverDownloader: CoverDownloader
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -92,6 +96,10 @@ class SettingsActivity : AppCompatActivity() {
             downloader.status.observe(viewLifecycleOwner) { message ->
                 findPreference<Preference>("download_all_pdf_text")?.summary = message
             }
+            // Same for "Make covers for all PDFs".
+            (requireActivity() as SettingsActivity).coverDownloader.status.observe(viewLifecycleOwner) { message ->
+                findPreference<Preference>("make_all_covers")?.summary = message
+            }
         }
 
         /** "12 searches saved" under the Clear search history button. */
@@ -117,7 +125,26 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         override fun onPreferenceTreeClick(preference: Preference): Boolean {
-            if (preference.key == "clear_search_history") {
+            if (preference.key == "make_all_covers") {
+                val activity = requireActivity() as SettingsActivity
+                val covers = activity.coverDownloader
+                if (covers.isRunning || activity.myStorageManager.isAttachmentFolderOnDevice()) {
+                    covers.toggle()   // stop, or start with PDFs on the phone (no download)
+                } else {
+                    // Cloud folder: every PDF is fetched through the cloud app. Ask first.
+                    androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                        .setTitle("Make covers for all PDFs?")
+                        .setMessage(
+                            "Your attachment folder is in a cloud app (such as pCloud). To draw each " +
+                                "cover, the cloud app fetches that PDF, so this may download most of your " +
+                                "library to the phone. It runs on Wi-Fi only, and you can stop it any time."
+                        )
+                        .setPositiveButton("Start") { _, _ -> covers.toggle() }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
+                return true
+            } else if (preference.key == "clear_search_history") {
                 val prefs = (requireActivity() as SettingsActivity).myPreferenceManager
                 val count = prefs.getSearchHistory().size
                 if (count == 0) return true

@@ -26,7 +26,12 @@ class FullTextDownloader @Inject constructor(
     private val attachmentStorageManager: AttachmentStorageManager
 ) {
     private val executor = Executors.newSingleThreadExecutor()
-    private val statusData = MutableLiveData(DownloadAllLogic.IDLE)
+
+    // After a restart, show how the last run ended, and when.
+    private val statusData = MutableLiveData(
+        preferences.getLastRun(LAST_RUN_NAME)?.let { (message, time) -> LastRun.describe(message, formatTime(time)) }
+            ?: DownloadAllLogic.IDLE
+    )
 
     @Volatile private var cancelled = false
     @Volatile var isRunning = false
@@ -44,6 +49,21 @@ class FullTextDownloader @Inject constructor(
     }
 
     private fun maxBytes() = preferences.getFullTextCacheMegabytes() * 1024L * 1024L
+
+    /** A run ended (finished, stopped or failed): show and keep the message with the time. */
+    private fun end(message: String) {
+        val now = System.currentTimeMillis()
+        preferences.setLastRun(LAST_RUN_NAME, message, now)
+        statusData.postValue(LastRun.describe(message, formatTime(now)))
+    }
+
+    private fun formatTime(timeMs: Long): String =
+        java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
+            .format(java.util.Date(timeMs))
+
+    private companion object {
+        const val LAST_RUN_NAME = "fulltext_download"
+    }
 
     /** Starts, or stops if already running. */
     fun toggle() {
@@ -64,7 +84,7 @@ class FullTextDownloader @Inject constructor(
 
     private fun run() {
         if (!auth.hasCredentials()) {
-            statusData.postValue(DownloadAllLogic.NOT_LOGGED_IN)
+            end(DownloadAllLogic.NOT_LOGGED_IN)
             return
         }
         statusData.postValue(DownloadAllLogic.checking())
@@ -75,7 +95,7 @@ class FullTextDownloader @Inject constructor(
         val allKeys = try {
             api.getFullTextKeys().blockingGet()
         } catch (e: Exception) {
-            statusData.postValue(DownloadAllLogic.failedToStart(e.message ?: "no connection"))
+            end(DownloadAllLogic.failedToStart(e.message ?: "no connection"))
             return
         }
 
@@ -89,7 +109,7 @@ class FullTextDownloader @Inject constructor(
                 cancelled, NetworkUtil.isUnmetered(context), cache.usedBytes(), maxBytes()
             )
             if (stop != DownloadAllLogic.Stop.NONE) {
-                statusData.postValue(DownloadAllLogic.stopped(stop, saved, total, maxBytes()))
+                end(DownloadAllLogic.stopped(stop, saved, total, maxBytes()))
                 return
             }
             statusData.postValue(DownloadAllLogic.progress(saved, total, cache.usedBytes()))
@@ -102,8 +122,6 @@ class FullTextDownloader @Inject constructor(
                 failed++
             }
         }
-        statusData.postValue(
-            DownloadAllLogic.finished(total, failed, cache.usedBytes(), preferences.getFullTextCacheDays())
-        )
+        end(DownloadAllLogic.finished(total, failed, cache.usedBytes(), preferences.getFullTextCacheDays()))
     }
 }

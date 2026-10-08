@@ -304,6 +304,21 @@ class PreferenceManager @Inject constructor(context: Context) {
             .apply()
     }
 
+    /** Keeps the final message of a "download all" run ([name]) and when it ended. */
+    fun setLastRun(name: String, message: String, timeMs: Long) {
+        sharedPreferences.edit()
+            .putString("last_run_message_$name", message)
+            .putLong("last_run_time_$name", timeMs)
+            .apply()
+    }
+
+    /** The kept (message, end time) of a run, or null if it never ran. */
+    fun getLastRun(name: String): Pair<String, Long>? {
+        val message = sharedPreferences.getString("last_run_message_$name", null) ?: return null
+        val time = sharedPreferences.getLong("last_run_time_$name", 0L)
+        return if (time > 0L) Pair(message, time) else null
+    }
+
     fun isGalleryView(): Boolean {
         /* Library shown as a grid of covers instead of a list. */
         return sharedPreferences.getBoolean("library_gallery_view", false)
