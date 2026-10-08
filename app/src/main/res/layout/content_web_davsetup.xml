@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F9F9F9"
+    android:background="@color/webdav_screen_background"
     android:orientation="vertical"
     tools:context=".LibraryActivity.WebDAV.WebDAVSetup"
     tools:showIn="@layout/activity_web_dav_setup">
@@ -28,7 +28,7 @@
                 android:layout_marginStart="12dp"
                 android:layout_marginTop="12dp"
                 android:layout_marginEnd="12dp"
-                app:cardBackgroundColor="@android:color/white"
+                app:cardBackgroundColor="@color/webdav_card_background"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="4dp"
                 app:layout_constraintEnd_toEndOf="parent"
