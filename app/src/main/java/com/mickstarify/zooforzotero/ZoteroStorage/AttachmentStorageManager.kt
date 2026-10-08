@@ -281,6 +281,34 @@ class AttachmentStorageManager @Inject constructor(
         return rootDocFile?.canWrite() == true
     }
 
+    /**
+     * Checks the attachments folder in detail, telling a permission that Android has
+     * really withdrawn apart from a folder app (e.g. pCloud) that just didn't answer.
+     * Asks the folder's app, so call it off the main thread.
+     */
+    fun checkStorage(): StorageStatus {
+        val location = preferenceManager.getCustomAttachmentStorageLocation()
+        val uri = if (location == "") null else Uri.parse(location)
+        val granted = uri != null && context.contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission
+        }
+        val root = if (uri != null && granted) {
+            try { DocumentFile.fromTreeUri(context, uri) } catch (e: Exception) { null }
+        } else null
+        val canRead = try { root?.canRead() == true } catch (e: Exception) { false }
+        val canWrite = try { root?.canWrite() == true } catch (e: Exception) { false }
+
+        val status = StorageCheck.classify(
+            usingCustomFolder = storageMode == StorageMode.CUSTOM,
+            folderChosen = uri != null,
+            permissionGranted = granted,
+            canRead = canRead,
+            canWrite = canWrite
+        )
+        Log.d("zotero", "attachment folder check: $status (granted=$granted read=$canRead write=$canWrite)")
+        return status
+    }
+
     fun createTempFile(filename: String): File {
         val zipFile = File(context.cacheDir, filename)
         if (zipFile.exists()) {

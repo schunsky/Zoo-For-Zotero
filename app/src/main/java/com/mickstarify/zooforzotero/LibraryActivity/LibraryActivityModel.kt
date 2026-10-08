@@ -40,6 +40,8 @@ import com.mickstarify.zooforzotero.search.SnippetLogic
 import com.mickstarify.zooforzotero.search.SnippetPlanning
 import com.mickstarify.zooforzotero.search.TextSnippet
 import io.reactivex.rxjava3.core.Maybe
+import io.reactivex.rxjava3.core.Single
+import com.mickstarify.zooforzotero.ZoteroStorage.StorageStatus
 import io.reactivex.rxjava3.core.Observable
 import dagger.hilt.android.EntryPointAccessors
 import io.reactivex.rxjava3.core.Completable
@@ -1005,18 +1007,57 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
         states.push(newState)
     }
 
+    private var storageCheck: Disposable? = null
+    private var warnedFolderUnavailable = false
+
+    /**
+     * Runs at start-up and whenever Zoo returns to the foreground. Only a permission
+     * that Android has really withdrawn resets the setting. A folder app (e.g. pCloud)
+     * that doesn't answer right away is asked again a few seconds later, and the
+     * setting is kept either way.
+     */
     fun checkAttachmentStorageAccess() {
-        try {
-            if (attachmentStorageManager.testStorage() == false) {
-                throw Exception()
+        storageCheck?.dispose()
+        storageCheck = Single.fromCallable { attachmentStorageManager.checkStorage() }
+            .flatMap { first ->
+                if (first == StorageStatus.UNAVAILABLE) {
+                    // Give the folder's app a moment (e.g. pCloud just moved to the background).
+                    Single.timer(3, java.util.concurrent.TimeUnit.SECONDS)
+                        .observeOn(Schedulers.io())   // asking the folder's app is slow I/O
+                        .map { attachmentStorageManager.checkStorage() }
+                } else {
+                    Single.just(first)
+                }
             }
-        } catch (e: Exception) {
-            Log.e("zotero", "error testing storage. ${e}")
-            presenter.createErrorAlert(
-                "Permission Error",
-                "There was an error accessing your zotero attachment location. Please reconfigure in settings.",
-                {})
-            preferences.useExternalCache()
+            .subscribeOn(Schedulers.io())
+            .observeOn(AndroidSchedulers.mainThread())
+            .subscribe(
+                { status -> onStorageChecked(status) },
+                { e -> Log.e("zotero", "error checking attachment folder: $e") }
+            )
+    }
+
+    private fun onStorageChecked(status: StorageStatus) {
+        when {
+            status.needsReconfiguring -> {
+                presenter.createErrorAlert(
+                    "Attachment folder needs to be chosen again",
+                    "Android no longer allows Zoo to open your attachment folder. " +
+                        "Please choose it again in Settings > Attachments Location.",
+                    {})
+                preferences.useExternalCache()
+            }
+            status == StorageStatus.UNAVAILABLE && !warnedFolderUnavailable -> {
+                // Once per app start, not on every return to the app.
+                warnedFolderUnavailable = true
+                presenter.makeToastAlert(
+                    "Your attachment folder isn't responding right now. If it's in pCloud, " +
+                        "check that the pCloud app is signed in. Your setting is kept."
+                )
+            }
+            status == StorageStatus.OK || status == StorageStatus.READ_ONLY -> {
+                warnedFolderUnavailable = false
+            }
         }
     }
 
