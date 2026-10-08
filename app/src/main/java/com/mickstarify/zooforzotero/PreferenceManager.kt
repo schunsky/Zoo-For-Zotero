@@ -274,6 +274,25 @@ class PreferenceManager @Inject constructor(context: Context) {
         return sharedPreferences.getString("search_snippets", "WIFI") ?: "WIFI"
     }
 
+    fun getFullTextCacheDays(): Int =
+        /* Days to keep downloaded PDF text; 0 = no time limit. */
+        com.mickstarify.zooforzotero.search.SearchSettings.cacheDays(
+            sharedPreferences.getString("fulltext_cache_days", null))
+
+    fun getFullTextCacheMegabytes(): Int =
+        /* Most space downloaded PDF text may use. */
+        com.mickstarify.zooforzotero.search.SearchSettings.cacheMegabytes(
+            sharedPreferences.getString("fulltext_cache_mb", null))
+
+    fun getSnippetsPerSearch(): Int =
+        /* How many PDFs per search may get a context line. */
+        com.mickstarify.zooforzotero.search.SearchSettings.snippetsPerSearch(
+            sharedPreferences.getString("snippets_per_search", null))
+
+    fun shouldSortPdfResultsByMatches(): Boolean =
+        /* Order PDF search results by how often the term appears. */
+        sharedPreferences.getBoolean("sort_pdf_results_by_matches", false)
+
     fun isGalleryView(): Boolean {
         /* Library shown as a grid of covers instead of a list. */
         return sharedPreferences.getBoolean("library_gallery_view", false)

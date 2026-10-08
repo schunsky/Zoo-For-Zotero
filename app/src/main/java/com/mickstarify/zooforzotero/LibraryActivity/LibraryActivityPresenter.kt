@@ -135,6 +135,9 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
     // Context lines under search results, by item key.
     private val snippets = HashMap<String, CharSequence>()
 
+    // How often the search term appears in each PDF result, by item key.
+    private val matchCounts = HashMap<String, Int>()
+
     private fun cancelInsidePdfSearch() {
         pendingInsidePdfSearch?.let { insidePdfHandler.removeCallbacks(it) }
         pendingInsidePdfSearch = null
@@ -142,6 +145,7 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
         insidePdfRequest = null
         snippetRequest?.dispose()
         snippetRequest = null
+        matchCounts.clear()
         if (snippets.isNotEmpty()) {
             snippets.clear()
             libraryListViewModel.setSnippets(emptyMap())
@@ -174,11 +178,30 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
 
                 // Then fill in the words around each match, one PDF at a time.
                 val pdfHits = extra.mapNotNull { (item, pdfKey) -> pdfKey?.let { item.itemKey to it } }
-                snippetRequest = model.loadPdfSnippets(query, pdfHits) { itemKey, snippet ->
-                    if (query != latestQuery) return@loadPdfSnippets
-                    snippets[itemKey] = SnippetFormatter.format(snippet, SnippetLogic.pdfLabel(snippet))
-                    libraryListViewModel.setSnippets(HashMap(snippets))
-                }
+                snippetRequest = model.loadPdfSnippets(
+                    query,
+                    pdfHits,
+                    onSnippet = { itemKey, snippet ->
+                        if (query == latestQuery) {
+                            matchCounts[itemKey] = snippet.matchCount
+                            snippets[itemKey] = SnippetFormatter.format(snippet, SnippetLogic.pdfLabel(snippet))
+                            libraryListViewModel.setSnippets(HashMap(snippets))
+                        }
+                    },
+                    onDone = {
+                        // Re-sort the PDF results once, when every count is in, so the
+                        // list doesn't jump around while the lines are filling in.
+                        if (query == latestQuery &&
+                            model.preferences.shouldSortPdfResultsByMatches() &&
+                            matchCounts.isNotEmpty()
+                        ) {
+                            val byKey = extra.associateBy { it.first.itemKey }
+                            val sorted = SnippetLogic.sortByMatchCount(byKey.keys.toList(), matchCounts)
+                                .mapNotNull { byKey[it]?.first }
+                            libraryListViewModel.setItems(localResults + sorted.map { ListEntry(it) })
+                        }
+                    }
+                )
             }
         }
         pendingInsidePdfSearch = search

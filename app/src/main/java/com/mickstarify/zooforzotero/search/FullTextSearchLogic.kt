@@ -63,14 +63,12 @@ data class TextSnippet(
     val before: String,
     val match: String,
     val after: String,
-    /** Where the first match is, as a percentage of the whole text (0-100). */
-    val positionPercent: Int,
     /** How many times the term appears, capped at [SnippetLogic.MAX_COUNT] + 1. */
     val matchCount: Int
 )
 
 object SnippetLogic {
-    const val MAX_COUNT = 99
+    const val MAX_COUNT = 999
     const val DEFAULT_RADIUS = 70
 
     /**
@@ -111,22 +109,34 @@ object SnippetLogic {
                 before = before,
                 match = collapse(text.substring(first, end)),
                 after = after,
-                positionPercent = (first.toLong() * 100 / text.length).toInt().coerceIn(0, 100),
                 matchCount = count
             )
         }
         return null
     }
 
-    /** "PDF 48% · 3 matches · " — the label shown before a PDF snippet. */
+    /** "PDF · 3 matches · " — the label shown before a PDF snippet. */
     fun pdfLabel(snippet: TextSnippet): String {
         val count = when {
             snippet.matchCount > MAX_COUNT -> " · $MAX_COUNT+ matches"
             snippet.matchCount > 1 -> " · ${snippet.matchCount} matches"
             else -> ""
         }
-        return "PDF ${snippet.positionPercent}%$count · "
+        return "PDF$count · "
     }
+
+    /**
+     * Orders [keys] by their match count, most first. Equal counts keep their
+     * original order; keys with no known count (e.g. beyond the per-search limit,
+     * or text not available) go last, also in their original order.
+     */
+    fun sortByMatchCount(keys: List<String>, counts: Map<String, Int>): List<String> =
+        keys.withIndex()
+            .sortedWith(
+                compareByDescending<IndexedValue<String>> { counts[it.value] ?: -1 }
+                    .thenBy { it.index }
+            )
+            .map { it.value }
 
     /** May the text of a PDF be downloaded to make a snippet? (setting: OFF / WIFI / ALL) */
     fun mayDownloadText(mode: String?, unmeteredNetwork: Boolean): Boolean = when (mode) {
@@ -137,4 +147,59 @@ object SnippetLogic {
 
     /** Line breaks and runs of spaces become single spaces (PDF text is full of them). */
     private fun collapse(s: String): String = s.replace(Regex("\\s+"), " ")
+}
+
+/**
+ * The user's search settings, read from their stored text values.
+ * Anything missing or unreadable falls back to the default.
+ */
+object SearchSettings {
+    const val DEFAULT_CACHE_DAYS = 30
+    const val DEFAULT_CACHE_MB = 100
+    const val DEFAULT_SNIPPETS_PER_SEARCH = 15
+
+    /** Days to keep downloaded PDF text; 0 means keep until the size limit removes it. */
+    fun cacheDays(stored: String?): Int = parseInRange(stored, 0..3650, DEFAULT_CACHE_DAYS)
+
+    /** Most space downloaded PDF text may use, in MB. */
+    fun cacheMegabytes(stored: String?): Int = parseInRange(stored, 1..10_000, DEFAULT_CACHE_MB)
+
+    /** How many PDFs per search may get a context line. */
+    fun snippetsPerSearch(stored: String?): Int = parseInRange(stored, 1..1000, DEFAULT_SNIPPETS_PER_SEARCH)
+
+    private fun parseInRange(stored: String?, range: IntRange, default: Int): Int {
+        val value = stored?.trim()?.toIntOrNull() ?: return default
+        return if (value in range) value else default
+    }
+}
+
+/** One file in the PDF-text cache, as seen by [CacheEviction]. */
+data class CacheEntry(val name: String, val sizeBytes: Long, val modifiedMs: Long)
+
+object CacheEviction {
+    private const val DAY_MS = 24L * 60 * 60 * 1000
+
+    /**
+     * Which cache files to delete: first everything older than [maxAgeDays]
+     * (0 = no age limit), then the oldest remaining ones until the total is
+     * within [maxBytes].
+     */
+    fun filesToDelete(entries: List<CacheEntry>, nowMs: Long, maxAgeDays: Int, maxBytes: Long): Set<String> {
+        val delete = LinkedHashSet<String>()
+        val kept = ArrayList<CacheEntry>()
+        for (entry in entries.sortedBy { it.modifiedMs }) {
+            val tooOld = maxAgeDays > 0 && nowMs - entry.modifiedMs > maxAgeDays * DAY_MS
+            if (tooOld) delete.add(entry.name) else kept.add(entry)
+        }
+        var total = kept.sumOf { it.sizeBytes }
+        for (entry in kept) {
+            if (total <= maxBytes) break
+            total -= entry.sizeBytes
+            delete.add(entry.name)
+        }
+        return delete
+    }
+
+    fun isExpired(modifiedMs: Long, nowMs: Long, maxAgeDays: Int): Boolean =
+        maxAgeDays > 0 && nowMs - modifiedMs > maxAgeDays * DAY_MS
 }

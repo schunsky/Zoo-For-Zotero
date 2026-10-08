@@ -2,7 +2,6 @@ package com.mickstarify.zooforzotero.search
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -14,8 +13,8 @@ class SnippetLogicTest {
     private val text = "Intro words here. The hidden mysteries of template\nmetaprogramming are   revealed. " +
         "More mysteries later. End."
 
-    private fun snippet(t: String, q: String, radius: Int = 20) =
-        assertNotNull(SnippetLogic.makeSnippet(t, q, radius))!!
+    private fun snippet(t: String, q: String, radius: Int = 20): TextSnippet =
+        requireNotNull(SnippetLogic.makeSnippet(t, q, radius)) { "expected a snippet for \"$q\"" }
 
     @Test
     fun `finds the match case-insensitively and keeps the text's own case`() {
@@ -41,15 +40,9 @@ class SnippetLogicTest {
     }
 
     @Test
-    fun `position is the share of text before the match`() {
-        assertEquals(text.indexOf("mysteries") * 100 / text.length, snippet(text, "mysteries").positionPercent)
-    }
-
-    @Test
     fun `match at the very start has no leading ellipsis`() {
         val s = snippet("mysteries at the very start of a long sentence here", "mysteries", 10)
         assertEquals("", s.before)
-        assertEquals(0, s.positionPercent)
     }
 
     @Test
@@ -79,15 +72,16 @@ class SnippetLogicTest {
 
     @Test
     fun `count stops just above the cap`() {
-        assertEquals(SnippetLogic.MAX_COUNT + 1, snippet("abc ".repeat(500), "abc", 10).matchCount)
+        assertEquals(SnippetLogic.MAX_COUNT + 1, snippet("abc ".repeat(1500), "abc", 10).matchCount)
     }
 
     @Test
-    fun `labels show position and count`() {
+    fun `labels show the match count, without a percentage`() {
         val s = snippet(text, "mysteries")
-        assertEquals("PDF 48% · ", SnippetLogic.pdfLabel(s.copy(positionPercent = 48, matchCount = 1)))
-        assertEquals("PDF 48% · 3 matches · ", SnippetLogic.pdfLabel(s.copy(positionPercent = 48, matchCount = 3)))
-        assertEquals("PDF 0% · 99+ matches · ", SnippetLogic.pdfLabel(s.copy(positionPercent = 0, matchCount = 100)))
+        assertEquals("PDF · ", SnippetLogic.pdfLabel(s.copy(matchCount = 1)))
+        assertEquals("PDF · 3 matches · ", SnippetLogic.pdfLabel(s.copy(matchCount = 3)))
+        assertEquals("PDF · 999 matches · ", SnippetLogic.pdfLabel(s.copy(matchCount = 999)))
+        assertEquals("PDF · 999+ matches · ", SnippetLogic.pdfLabel(s.copy(matchCount = 1000)))
     }
 
     @ParameterizedTest(name = "mode={0}, unmetered={1} -> {2}")

@@ -56,9 +56,6 @@ import com.mickstarify.zooforzotero.ZoteroStorage.Database.Collection as ZoteroC
 
 private const val TAG = "LibraryActivityModel"
 
-/** At most this many PDF texts are fetched per search, to limit data use. */
-private const val MAX_SNIPPETS_PER_SEARCH = 15
-
 class LibraryActivityModel(private val presenter: Contract.Presenter, val context: Context) :
     Contract.Model, OnSyncChangeListener {
 
@@ -370,17 +367,25 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
             )
     }
 
-    private val fullTextCache by lazy { FullTextCache(context) }
+    private val fullTextCache by lazy {
+        FullTextCache(
+            context,
+            maxAgeDays = { preferences.getFullTextCacheDays() },
+            maxBytes = { preferences.getFullTextCacheMegabytes() * 1024L * 1024L }
+        )
+    }
 
     /**
      * For each (item key, PDF key) in [pdfHits], gets the PDF's text (from the phone's
      * cache, or from zotero.org if the setting and network allow) and reports the
      * words around [query] via [onSnippet] on the main thread, one result at a time.
+     * [onDone] runs on the main thread once every PDF has been tried.
      */
     fun loadPdfSnippets(
         query: String,
         pdfHits: List<Pair<String, String>>,
-        onSnippet: (itemKey: String, snippet: TextSnippet) -> Unit
+        onSnippet: (itemKey: String, snippet: TextSnippet) -> Unit,
+        onDone: () -> Unit
     ): Disposable? {
         if (!::zoteroAPI.isInitialized) return null
         val mode = preferences.getSearchSnippetMode()
@@ -388,7 +393,10 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
         val mayDownload = SnippetLogic.mayDownloadText(mode, NetworkUtil.isUnmetered(context))
         val groupID = state.currentGroup.id
 
-        return Observable.fromIterable(pdfHits.take(MAX_SNIPPETS_PER_SEARCH))
+        val limit = preferences.getSnippetsPerSearch()
+
+        return Observable.fromIterable(pdfHits.take(limit))
+            .doOnSubscribe { fullTextCache.trim() }   // apply changed limits before using the cache
             .concatMapMaybe { (itemKey, pdfKey) ->
                 val download: Maybe<String> = if (mayDownload) {
                     zoteroAPI.getFullText(pdfKey, groupID)
@@ -417,7 +425,8 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe(
                 { (itemKey, snippet) -> onSnippet(itemKey, snippet) },
-                { e -> Log.d("zotero", "PDF snippets failed: ${e.message}") }
+                { e -> Log.d("zotero", "PDF snippets failed: ${e.message}") },
+                { onDone() }
             )
     }
 

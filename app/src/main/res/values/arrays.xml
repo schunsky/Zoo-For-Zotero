@@ -51,4 +51,49 @@
         <item>WIFI</item>
         <item>ALL</item>
     </string-array>
+
+    <string-array name="snippets_per_search_entries">
+        <item>5</item>
+        <item>15</item>
+        <item>30</item>
+        <item>50</item>
+        <item>100</item>
+    </string-array>
+    <string-array name="snippets_per_search_values">
+        <item>5</item>
+        <item>15</item>
+        <item>30</item>
+        <item>50</item>
+        <item>100</item>
+    </string-array>
+
+    <string-array name="fulltext_cache_days_entries">
+        <item>7 days</item>
+        <item>30 days</item>
+        <item>90 days</item>
+        <item>1 year</item>
+        <item>No time limit</item>
+    </string-array>
+    <string-array name="fulltext_cache_days_values">
+        <item>7</item>
+        <item>30</item>
+        <item>90</item>
+        <item>365</item>
+        <item>0</item>
+    </string-array>
+
+    <string-array name="fulltext_cache_mb_entries">
+        <item>50 MB</item>
+        <item>100 MB</item>
+        <item>250 MB</item>
+        <item>500 MB</item>
+        <item>1 GB</item>
+    </string-array>
+    <string-array name="fulltext_cache_mb_values">
+        <item>50</item>
+        <item>100</item>
+        <item>250</item>
+        <item>500</item>
+        <item>1000</item>
+    </string-array>
 </resources>

@@ -69,6 +69,34 @@
             app:key="search_snippets"
             app:title="Show text around PDF matches"
             app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:defaultValue="15"
+            app:dependency="search_inside_pdfs"
+            app:entries="@array/snippets_per_search_entries"
+            app:entryValues="@array/snippets_per_search_values"
+            app:key="snippets_per_search"
+            app:title="PDFs per search that get a context line"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            android:defaultValue="false"
+            android:dependency="search_inside_pdfs"
+            android:key="sort_pdf_results_by_matches"
+            android:summary="Most matches first. Needs 'Show text around PDF matches'; results re-sort once all counts are in"
+            android:title="Sort PDF results by number of matches" />
+        <ListPreference
+            app:defaultValue="30"
+            app:entries="@array/fulltext_cache_days_entries"
+            app:entryValues="@array/fulltext_cache_days_values"
+            app:key="fulltext_cache_days"
+            app:title="Keep downloaded PDF text for"
+            app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:defaultValue="100"
+            app:entries="@array/fulltext_cache_mb_entries"
+            app:entryValues="@array/fulltext_cache_mb_values"
+            app:key="fulltext_cache_mb"
+            app:title="Space for downloaded PDF text"
+            app:useSimpleSummaryProvider="true" />
         <SwitchPreference
             android:defaultValue="true"
             android:key="show_pdf_thumbnails"
