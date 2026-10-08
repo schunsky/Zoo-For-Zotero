@@ -13,6 +13,7 @@ import com.mickstarify.zooforzotero.ZoteroStorage.Database.GroupInfo
 import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
 import com.mickstarify.zooforzotero.search.FullTextSearchLogic
 import com.mickstarify.zooforzotero.search.SearchProgress
+import com.mickstarify.zooforzotero.search.ProgressThrottle
 import com.mickstarify.zooforzotero.search.SearchSummary
 import com.mickstarify.zooforzotero.search.TextSnippet
 import com.mickstarify.zooforzotero.search.SnippetFormatter
@@ -221,6 +222,9 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
         if (extra.isNotEmpty()) libraryListViewModel.setItems(allResults)
 
         // Then read every matching PDF, including those of items already listed by title.
+        // The progress window covers the list meanwhile, so the context lines are drawn
+        // once at the end, and the counter at most every 0.1 s, not after every PDF.
+        var lastProgressShownAt: Long? = null
         if (pdfMatches.isEmpty()) {
             finishSearch(allResults.size, pdfsWithMatches)
             return
@@ -229,7 +233,9 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
             query,
             pdfMatches,
             onProgress = { done, total, notRead ->
-                if (query == latestQuery) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (query == latestQuery && ProgressThrottle.shouldPublish(now, lastProgressShownAt, done, total)) {
+                    lastProgressShownAt = now
                     libraryListViewModel.setSearchProgress(
                         SearchProgress(SearchProgress.Phase.READING_TEXT, done, total, pdfsWithMatches, notRead)
                     )
@@ -242,11 +248,11 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
                     pdfSnippets[itemKey] = combined
                     matchCounts[itemKey] = combined.matchCount
                     snippets[itemKey] = SnippetFormatter.format(combined, SnippetLogic.pdfLabel(combined))
-                    libraryListViewModel.setSnippets(HashMap(snippets))
                 }
             },
             onDone = {
                 if (query == latestQuery) {
+                    libraryListViewModel.setSnippets(HashMap(snippets))   // all context lines at once
                     // Re-sort the PDF results once, when every count is in.
                     if (model.preferences.shouldSortPdfResultsByMatches() && matchCounts.isNotEmpty()) {
                         val byKey = extra.associateBy { it.first.itemKey }

@@ -117,3 +117,24 @@ data class LibraryViewState(
      */
     fun toggled() = LibraryViewState(galleryChosen = !showsGallery, listForSearch = false)
 }
+
+/** How much work runs side by side while reading matching PDFs. */
+object SearchParallelism {
+    /** Most PDFs read at once: a large book's text takes several MB while being read. */
+    const val MAX_READING_THREADS = 4
+
+    /** Downloads from zotero.org at once (to stay polite to the server). */
+    const val DOWNLOAD_THREADS = 3
+
+    /** Saved PDF texts read at once: one per core, leaving one free for the screen. */
+    fun readingThreads(cores: Int): Int = (cores - 1).coerceIn(1, MAX_READING_THREADS)
+}
+
+/** Limits how often the progress window is redrawn while many PDFs finish quickly. */
+object ProgressThrottle {
+    const val INTERVAL_MS = 100L
+
+    /** Redraw if enough time has passed, and always for the first and the last PDF. */
+    fun shouldPublish(nowMs: Long, lastPublishedMs: Long?, done: Int, total: Int): Boolean =
+        lastPublishedMs == null || done >= total || nowMs - lastPublishedMs >= INTERVAL_MS
+}

@@ -38,6 +38,7 @@ import com.mickstarify.zooforzotero.search.FullTextSearchLogic
 import com.mickstarify.zooforzotero.search.NetworkUtil
 import com.mickstarify.zooforzotero.search.SnippetLogic
 import com.mickstarify.zooforzotero.search.SnippetPlanning
+import com.mickstarify.zooforzotero.search.SearchParallelism
 import com.mickstarify.zooforzotero.search.TextSnippet
 import io.reactivex.rxjava3.core.Maybe
 import io.reactivex.rxjava3.core.Single
@@ -425,33 +426,46 @@ class LibraryActivityModel(private val presenter: Contract.Presenter, val contex
                 mayDownload = SnippetLogic.mayDownloadText(mode, NetworkUtil.isUnmetered(context)),
                 downloadLimit = preferences.getSnippetsPerSearch()
             )
-            Log.d("zotero", "PDF snippets: ${plan.fromPhone.size} saved, ${plan.toDownload.size} to download")
-            val work = plan.fromPhone.map { it to false } + plan.toDownload.map { it to true }
-            val count = work.size
+            val count = plan.fromPhone.size + plan.toDownload.size
             val skipped = pdfHits.size - count
             AndroidSchedulers.mainThread().scheduleDirect {
                 total = count
                 notRead = skipped
                 onProgress(0, count, skipped)
             }
-            Observable.fromIterable(work)
-        }
-            .concatMapSingle { (hit, download) ->
-                val (itemKey, pdfKey) = hit
-                val text: Maybe<String> = if (!download) {
-                    Maybe.defer {
+
+            // Saved text: unpacking and scanning is processor work, so several PDFs are
+            // read side by side, one per core (keeping one core free for the screen).
+            val readingThreads = SearchParallelism.readingThreads(Runtime.getRuntime().availableProcessors())
+            val fromPhone = Observable.fromIterable(plan.fromPhone).flatMap(
+                io.reactivex.rxjava3.functions.Function<Pair<String, String>, Observable<SnippetResult>> { (itemKey, pdfKey) ->
+                    Single.fromCallable {
                         val saved = fullTextCache.read(pdfKey)
-                        if (saved == null) Maybe.empty<String>() else Maybe.just(saved)
-                    }
-                } else {
+                        SnippetResult(itemKey, saved?.let { SnippetLogic.makeSnippet(it, query) })
+                    }.subscribeOn(Schedulers.computation()).toObservable()
+                },
+                false,
+                readingThreads
+            )
+
+            // Text not saved yet: a few downloads at a time, each saved for next time.
+            val downloaded = Observable.fromIterable(plan.toDownload).flatMap(
+                io.reactivex.rxjava3.functions.Function<Pair<String, String>, Observable<SnippetResult>> { (itemKey, pdfKey) ->
                     zoteroAPI.getFullText(pdfKey, groupID)
                         .doOnSuccess { t -> if (t.isNotEmpty()) fullTextCache.write(pdfKey, t) }
-                        .toMaybe()
-                        .onErrorComplete()
-                }
-                text.map { t -> SnippetResult(itemKey, SnippetLogic.makeSnippet(t, query)) }
-                    .defaultIfEmpty(SnippetResult(itemKey, null))
-            }
+                        .map { t -> SnippetResult(itemKey, SnippetLogic.makeSnippet(t, query)) }
+                        .onErrorReturnItem(SnippetResult(itemKey, null))
+                        .subscribeOn(Schedulers.io())
+                        .toObservable()
+                },
+                false,
+                SearchParallelism.DOWNLOAD_THREADS
+            )
+
+            Log.d("zotero", "PDF snippets: reading ${plan.fromPhone.size} saved on $readingThreads threads, " +
+                "downloading ${plan.toDownload.size}")
+            Observable.merge(fromPhone, downloaded)
+        }
             .subscribeOn(Schedulers.io())
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe(
