@@ -1,8 +1,6 @@
 package com.mickstarify.zooforzotero.LibraryActivity
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.ViewModelProvider
 import com.mickstarify.zooforzotero.LibraryActivity.ViewModels.LibraryListViewModel
@@ -16,6 +14,7 @@ import com.mickstarify.zooforzotero.ZoteroStorage.Database.Item
 import com.mickstarify.zooforzotero.search.FullTextSearchLogic
 import com.mickstarify.zooforzotero.search.SearchProgress
 import com.mickstarify.zooforzotero.search.SearchSummary
+import com.mickstarify.zooforzotero.search.TextSnippet
 import com.mickstarify.zooforzotero.search.SnippetFormatter
 import com.mickstarify.zooforzotero.search.SnippetLogic
 import io.reactivex.rxjava3.disposables.Disposable
@@ -126,29 +125,41 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
         return model.preferences.shouldLiveSearch()
     }
 
-    // Search inside PDFs (zotero.org). Waits for a short pause in typing, and
-    // only the newest query's answer is used.
-    private val insidePdfHandler = Handler(Looper.getMainLooper())
-    private var pendingInsidePdfSearch: Runnable? = null
+    // Search inside PDFs (zotero.org). Starts when Search is pressed on the keyboard;
+    // only the newest query's answers are used.
     private var insidePdfRequest: Disposable? = null
     private var snippetRequest: Disposable? = null
     private var latestQuery = ""
 
+    // Results of the normal (on-phone) search for latestQuery.
+    private var localResults: List<ListEntry> = emptyList()
+
     // Context lines under search results, by item key.
     private val snippets = HashMap<String, CharSequence>()
 
-    // How often the search term appears in each PDF result, by item key.
+    // Each result's PDF context (combined over all its matching PDFs), by item key.
+    private val pdfSnippets = HashMap<String, TextSnippet>()
+
+    // How often the search term appears in each result's PDFs, by item key.
     private val matchCounts = HashMap<String, Int>()
 
-    private fun cancelInsidePdfSearch() {
-        pendingInsidePdfSearch?.let { insidePdfHandler.removeCallbacks(it) }
-        pendingInsidePdfSearch = null
+    private fun isInsidePdfSearchRunning(): Boolean =
+        insidePdfRequest?.isDisposed == false || snippetRequest?.isDisposed == false
+
+    /** Stops a search inside PDFs, keeping the normal results and their abstract lines. */
+    private fun stopInsidePdfRequests() {
         insidePdfRequest?.dispose()
         insidePdfRequest = null
         snippetRequest?.dispose()
         snippetRequest = null
-        matchCounts.clear()
         libraryListViewModel.setSearchProgress(null)
+    }
+
+    /** Clears everything about the current search: requests, context lines, counts, summary. */
+    private fun cancelInsidePdfSearch() {
+        stopInsidePdfRequests()
+        matchCounts.clear()
+        pdfSnippets.clear()
         libraryListViewModel.setSearchSummary(null)
         if (snippets.isNotEmpty()) {
             snippets.clear()
@@ -171,59 +182,66 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
         if (snippets.isNotEmpty()) libraryListViewModel.setSnippets(HashMap(snippets))
     }
 
-    private fun scheduleInsidePdfSearch(query: String, localResults: List<ListEntry>) {
+    /**
+     * Search pressed on the keyboard: also look inside PDFs, right away. (While typing,
+     * only the instant search of titles, authors and tags runs.)
+     */
+    fun startSearchInsidePdfs(query: String) {
+        if (query != latestQuery) filterEntries(query)
         if (!FullTextSearchLogic.shouldSearch(query, model.preferences.shouldSearchInsidePdfs())) return
-        val shownKeys = localResults.filter { it.isItem() }.map { it.getItem().itemKey }.toSet()
-        val search = Runnable {
-            // From here until the search finishes, the progress window blocks the screen.
-            libraryListViewModel.setSearchProgress(SearchProgress(SearchProgress.Phase.ASKING_SERVER))
-            insidePdfRequest = model.searchInsidePdfs(
-                query,
-                shownKeys,
-                onResult = { extra, pdfsWithMatches ->
-                    if (query == latestQuery) onServerAnswered(query, localResults, extra, pdfsWithMatches)
-                },
-                onError = {
-                    // Offline or zotero.org unreachable: keep the normal results.
-                    if (query == latestQuery) finishSearch(localResults.size, null)
-                }
-            )
-            if (insidePdfRequest == null) finishSearch(localResults.size, null)
-        }
-        pendingInsidePdfSearch = search
-        insidePdfHandler.postDelayed(search, 700)
+        stopInsidePdfRequests()   // pressing Search again restarts it
+
+        val local = localResults
+        val shownKeys = local.filter { it.isItem() }.map { it.getItem().itemKey }.toSet()
+        // Until the search finishes, the progress window blocks the screen.
+        libraryListViewModel.setSearchProgress(SearchProgress(SearchProgress.Phase.ASKING_SERVER))
+        insidePdfRequest = model.searchInsidePdfs(
+            query,
+            shownKeys,
+            onResult = { extra, pdfMatches ->
+                if (query == latestQuery) onServerAnswered(query, local, extra, pdfMatches)
+            },
+            onError = {
+                // Offline or zotero.org unreachable: keep the normal results.
+                if (query == latestQuery) finishSearch(local.size, null)
+            }
+        )
+        if (insidePdfRequest == null) finishSearch(local.size, null)
     }
 
     private fun onServerAnswered(
         query: String,
         localResults: List<ListEntry>,
         extra: List<Pair<Item, String?>>,
-        pdfsWithMatches: Int
+        pdfMatches: List<Pair<String, String>>
     ) {
+        val pdfsWithMatches = pdfMatches.size
         Log.d("zotero", "search inside PDFs: ${extra.size} extra results, $pdfsWithMatches PDFs with matches")
         val allResults = localResults + extra.map { ListEntry(it.first) }
         if (extra.isNotEmpty()) libraryListViewModel.setItems(allResults)
 
-        // Then fill in the words around each match, one PDF at a time.
-        val pdfHits = extra.mapNotNull { (item, pdfKey) -> pdfKey?.let { item.itemKey to it } }
-        if (pdfHits.isEmpty()) {
+        // Then read every matching PDF, including those of items already listed by title.
+        if (pdfMatches.isEmpty()) {
             finishSearch(allResults.size, pdfsWithMatches)
             return
         }
         snippetRequest = model.loadPdfSnippets(
             query,
-            pdfHits,
-            onProgress = { done, total ->
+            pdfMatches,
+            onProgress = { done, total, notRead ->
                 if (query == latestQuery) {
                     libraryListViewModel.setSearchProgress(
-                        SearchProgress(SearchProgress.Phase.READING_TEXT, done, total, pdfsWithMatches)
+                        SearchProgress(SearchProgress.Phase.READING_TEXT, done, total, pdfsWithMatches, notRead)
                     )
                 }
             },
             onSnippet = { itemKey, snippet ->
                 if (query == latestQuery) {
-                    matchCounts[itemKey] = snippet.matchCount
-                    snippets[itemKey] = SnippetFormatter.format(snippet, SnippetLogic.pdfLabel(snippet))
+                    // An item with several matching PDFs: counts add up, best context wins.
+                    val combined = SnippetLogic.combineForItem(pdfSnippets[itemKey], snippet)
+                    pdfSnippets[itemKey] = combined
+                    matchCounts[itemKey] = combined.matchCount
+                    snippets[itemKey] = SnippetFormatter.format(combined, SnippetLogic.pdfLabel(combined))
                     libraryListViewModel.setSnippets(HashMap(snippets))
                 }
             },
@@ -292,7 +310,11 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
 
     override fun filterEntries(query: String) {
         Log.d("zotero", "filtering $query")
+        // The same query arriving again (e.g. the search box re-sending it after Search was
+        // pressed) must not interrupt a search inside PDFs that is under way.
+        if (query == latestQuery && query != "" && isInsidePdfSearchRunning()) return
         latestQuery = query
+        localResults = emptyList()
         cancelInsidePdfSearch()
         if (query == "" || !model.isLoaded()) {
             //not going to waste my time lol.
@@ -318,9 +340,14 @@ class LibraryActivityPresenter(val view: LibraryActivity, context: Context) : Co
 
         Log.d("zotero", "setting items ${entries.size}")
         libraryListViewModel.setItems(entries)
-        libraryListViewModel.setSearchSummary(SearchSummary.resultLine(entries.size, null))
+        localResults = entries
+        libraryListViewModel.setSearchSummary(
+            SearchSummary.resultLine(
+                entries.size, null,
+                canSearchInsidePdfs = FullTextSearchLogic.shouldSearch(query, model.preferences.shouldSearchInsidePdfs())
+            )
+        )
         addAbstractSnippets(query, entries)
-        scheduleInsidePdfSearch(query, entries)
     }
 
     override fun attachmentDownloadError(message: String) {

@@ -51,6 +51,21 @@ object FullTextSearchLogic {
         return shownByKey.map { (shownKey, shown) -> Hit(shown, matchedByKey[shownKey].orEmpty()) }
     }
 
+    /**
+     * Every matching PDF, paired with the key of the result row it belongs to (its parent
+     * item, or itself if it's a standalone PDF). Includes PDFs of items the normal search
+     * already listed, so every matching PDF gets read; each PDF appears once.
+     * [rowKeyOf] returns null for keys this phone doesn't know (not synced yet).
+     */
+    fun pdfMatches(
+        keys: List<String>,
+        isPdf: (String) -> Boolean,
+        rowKeyOf: (String) -> String?
+    ): List<Pair<String, String>> =
+        keys.distinct()
+            .filter(isPdf)
+            .mapNotNull { pdfKey -> rowKeyOf(pdfKey)?.let { row -> row to pdfKey } }
+
     /** One entry for the results: what to show, and which server keys matched for it. */
     data class Hit<T>(val shown: T, val matchedKeys: List<String>)
 }
@@ -113,6 +128,16 @@ object SnippetLogic {
             )
         }
         return null
+    }
+
+    /**
+     * Combines the results of two PDFs of the same item: the counts add up (capped like a
+     * single count), and the context comes from the PDF with more matches.
+     */
+    fun combineForItem(existing: TextSnippet?, new: TextSnippet): TextSnippet {
+        if (existing == null) return new
+        val best = if (new.matchCount > existing.matchCount) new else existing
+        return best.copy(matchCount = (existing.matchCount + new.matchCount).coerceAtMost(MAX_COUNT + 1))
     }
 
     /** "PDF · 3 matches · " — the label shown before a PDF snippet. */

@@ -36,11 +36,11 @@ class SearchProgressTest {
     @Test
     fun `reading message shows the count, clamped`() {
         assertEquals(
-            "Finding the text around each match… 7 of 22 PDFs",
+            "Reading the matching PDFs… 7 of 22",
             SearchProgress(Phase.READING_TEXT, 7, 22).message()
         )
         assertEquals(
-            "Finding the text around each match… 22 of 22 PDFs",
+            "Reading the matching PDFs… 22 of 22",
             SearchProgress(Phase.READING_TEXT, 25, 22).message()
         )
     }
@@ -71,6 +71,26 @@ class SearchProgressTest {
     )
     fun `result line`(results: Int, pdfs: Int?, expected: String) =
         assertEquals(expected, SearchSummary.resultLine(results, pdfs))
+
+    @Test
+    fun `matches line says how many PDFs can't be read`() {
+        assertEquals(
+            "Matches in 300 PDFs · 12 without saved text",
+            SearchProgress(Phase.READING_TEXT, 0, 288, 300, notRead = 12).matchesLine()
+        )
+        assertEquals("Matches in 300 PDFs", SearchProgress(Phase.READING_TEXT, 0, 300, 300, notRead = 0).matchesLine())
+    }
+
+    @Test
+    fun `before pressing Search, the result line says how to look inside PDFs`() {
+        assertEquals(
+            "7 results · press Search on the keyboard to look inside PDFs",
+            SearchSummary.resultLine(7, null, canSearchInsidePdfs = true)
+        )
+        assertEquals("7 results", SearchSummary.resultLine(7, null, canSearchInsidePdfs = false))
+        // once the PDF search has run, the hint is replaced by the count
+        assertEquals("7 results · matches in 2 PDFs", SearchSummary.resultLine(7, 2, canSearchInsidePdfs = true))
+    }
 
     @Test
     fun `PDF count ignores non-PDF matches and duplicates`() {

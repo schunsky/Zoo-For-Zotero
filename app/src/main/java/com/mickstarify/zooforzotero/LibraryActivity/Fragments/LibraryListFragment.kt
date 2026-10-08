@@ -142,6 +142,8 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
                     (requireActivity() as LibraryActivity).presenter.addFilterState(query)
                     Log.d("zotero", "queryOnQuery $query")
                     hideKeyboard(requireActivity())
+                    // Search pressed on the keyboard: now also look inside PDFs.
+                    (requireActivity() as LibraryActivity).presenter.startSearchInsidePdfs(query)
                     return true
 
                     // need to dismiss keyboard.
@@ -196,9 +198,13 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
             showSearchProgress(progress)
         }
 
-        // "23 results · matches in 12 PDFs" under the title.
+        // "23 results · matches in 12 PDFs" in a bar above the results. (Not the toolbar
+        // subtitle: Android hides that while the search box is open.)
         viewModel.getSearchSummary().observe(viewLifecycleOwner) { summary ->
-            (requireActivity() as androidx.appcompat.app.AppCompatActivity).supportActionBar?.subtitle = summary
+            requireView().findViewById<TextView>(R.id.textView_search_summary)?.apply {
+                text = summary
+                visibility = if (summary == null) View.GONE else View.VISIBLE
+            }
         }
 
         // Act only on new requests (the last one is re-delivered when the screen is rebuilt).
