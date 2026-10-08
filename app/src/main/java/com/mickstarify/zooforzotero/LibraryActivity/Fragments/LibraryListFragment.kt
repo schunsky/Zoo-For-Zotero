@@ -37,6 +37,8 @@ import com.mickstarify.zooforzotero.adapters.LibraryListInteractionListener
 import com.mickstarify.zooforzotero.adapters.LibraryListRecyclerViewAdapter
 import com.mickstarify.zooforzotero.thumbnails.PdfThumbnailLoader
 import com.mickstarify.zooforzotero.search.SearchProgress
+import com.mickstarify.zooforzotero.search.LibraryViewMode
+import android.view.inputmethod.InputMethodManager
 import android.view.KeyEvent
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -67,6 +69,10 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
     // Progress window for searches inside PDFs.
     private var progressDialog: androidx.appcompat.app.AlertDialog? = null
     private var searchMenuItem: MenuItem? = null
+    private var viewToggleMenuItem: MenuItem? = null
+
+    /** Is the search box open? Search results always use the list view. */
+    private var searchBoxOpen = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -91,16 +97,20 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         menu.clear()
         inflater.inflate(R.menu.activity_library_actionbar, menu)
         super.onCreateOptionsMenu(menu, inflater)
-        updateViewToggle(menu.findItem(R.id.toggle_gallery_view))
+        viewToggleMenuItem = menu.findItem(R.id.toggle_gallery_view)
+        searchBoxOpen = false   // a freshly built menu starts with the search box closed
+        updateViewToggle(viewToggleMenuItem)
 
         val menuItem = menu.findItem(R.id.search)
         menuItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
             override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+                setSearchBoxOpen(true)
                 return true
             }
 
             override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
                 (requireActivity() as LibraryActivity).presenter.closeQuery()
+                setSearchBoxOpen(false)
                 return true
             }
         })
@@ -202,6 +212,12 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
 
         fab = requireView().findViewById<FloatingActionsMenu>(R.id.fab_add_item)
 
+        // Floating search button: opens the search box with the keyboard ready.
+        requireView().findViewById<FloatingActionButton>(R.id.fab_search).setOnClickListener {
+            fab.collapse()
+            openSearchBox()
+        }
+
         val fabZoteroSave =
             requireView().findViewById<FloatingActionButton>(R.id.fab_action_zotero_save)
         fabZoteroSave.setOnClickListener {
@@ -245,11 +261,39 @@ class LibraryListFragment : Fragment(), LibraryListInteractionListener,
         return super.onOptionsItemSelected(item)
     }
 
-    /** Shows the list as a grid of covers or as rows, as saved in the settings. */
+    /** Opens the toolbar search box and shows the keyboard. */
+    private fun openSearchBox() {
+        val item = searchMenuItem ?: return
+        item.expandActionView()
+        if (::searchView.isInitialized) {
+            searchView.isIconified = false
+            searchView.requestFocus()
+            searchView.post {
+                val imm = requireContext().getSystemService(InputMethodManager::class.java)
+                imm?.showSoftInput(searchView.findFocus() ?: searchView, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+    }
+
+    /** Search box opened or closed: switch list/gallery and show/hide the buttons to match. */
+    private fun setSearchBoxOpen(open: Boolean) {
+        searchBoxOpen = open
+        view?.findViewById<View>(R.id.fab_search)?.visibility =
+            if (LibraryViewMode.showSearchButton(open)) View.VISIBLE else View.GONE
+        viewToggleMenuItem?.isVisible = LibraryViewMode.showViewSwitch(open)
+        applyViewMode()
+    }
+
+    /**
+     * Shows the list as a grid of covers or as rows: the view chosen in the toolbar,
+     * except that search results always use the list. The chosen view isn't changed,
+     * so gallery comes back when the search box closes.
+     */
     private fun applyViewMode() {
         val recyclerView = view?.findViewById<RecyclerView>(R.id.recyclerView) ?: return
         val adapter = listAdapter ?: return
-        val gallery = preferenceManager.isGalleryView()
+        val gallery = LibraryViewMode.showGallery(preferenceManager.isGalleryView(), searchBoxOpen)
+        if (adapter.galleryMode == gallery && recyclerView.layoutManager != null) return
         adapter.galleryMode = gallery
         recyclerView.layoutManager = if (gallery) {
             GridLayoutManager(

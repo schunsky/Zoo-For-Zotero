@@ -55,3 +55,16 @@ object SearchSummary {
     fun countPdfs(matchingKeys: List<String>, isPdf: (String) -> Boolean): Int =
         matchingKeys.distinct().count(isPdf)
 }
+
+/** What the library screen shows, depending on the chosen view and whether the search box is open. */
+object LibraryViewMode {
+    /** Search results always use the list: context lines and match counts only fit there. */
+    fun showGallery(galleryChosen: Boolean, searchBoxOpen: Boolean): Boolean =
+        galleryChosen && !searchBoxOpen
+
+    /** The list/gallery switch is hidden while searching (it couldn't take effect anyway). */
+    fun showViewSwitch(searchBoxOpen: Boolean): Boolean = !searchBoxOpen
+
+    /** The floating search button is hidden while the search box is already open. */
+    fun showSearchButton(searchBoxOpen: Boolean): Boolean = !searchBoxOpen
+}

@@ -58,6 +58,19 @@
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 
+    <!-- Floating search button: opens the search box. -->
+    <com.getbase.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_search"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginBottom="16dp"
+        android:contentDescription="@string/search_title"
+        android:tint="#fff"
+        app:fab_icon="@drawable/baseline_search_24"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
     <com.getbase.floatingactionbutton.FloatingActionsMenu
         android:id="@+id/fab_add_item"
         android:layout_width="0dp"
