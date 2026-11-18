@@ -67,13 +67,46 @@ I am kind of busy but I will get to it!
 
 ## Building
 
-* Provide your own Zotero api key/secret in the apikeys.properties file.
+### 1. Zotero API key (needed for any build)
 
-* Provide your own google services api (otherwise replace firebase with a stubs library)
+The app logs in to zotero.org with OAuth, so each build needs its own Zotero app registration:
 
-  
+1. While logged in to zotero.org, register a new application at <https://www.zotero.org/oauth/apps>.
+   Use this **callback URL** exactly: `zooforzotero://oauth_callback`
+2. Create `apikeys.properties` in the repository's top folder (next to `settings.gradle`) with the
+   client key and secret Zotero gives you. Keep the quotation marks:
 
-  
+   ```properties
+   zotero_api_key="your_client_key"
+   zotero_api_secret="your_client_secret"
+   ```
+
+`apikeys.properties` is listed in `.gitignore`, so it is never committed. Treat the secret like a password.
+
+No `google-services.json` is needed: the app no longer uses Firebase.
+
+### 2. Build with Docker (Linux, no Android Studio needed)
+
+The `docker-build/` folder contains a build environment with JDK 17 and the Android SDK.
+With Docker installed, run from the repository's top folder:
+
+```bash
+docker-build/zoo-build.sh assembleDebug
+```
+
+The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+
+- The first run downloads a few GB and takes a while. Two Docker volumes keep things between runs:
+  `zoo-gradle-cache` (downloaded libraries, so later builds are fast) and `zoo-android-home`
+  (the debug signing key, so each new APK installs as an update of the previous one).
+- `docker-build/zoo-build.sh` with no arguments runs the unit tests and then builds the APK. This
+  currently fails, because one outdated test file (`ManualApiViewModelTest.kt`) doesn't compile, so
+  use `assembleDebug` as above. Any other Gradle tasks can be passed too, e.g. `clean` or `tasks`.
+- To build a different checkout, set `PROJECT`: `PROJECT=/path/to/checkout docker-build/zoo-build.sh assembleDebug`
+- If building the image fails while downloading the Android command-line tools (HTTP 404), copy the
+  current build number from <https://developer.android.com/studio#command-line-tools-only>
+  into the `CMDLINE_TOOLS_VERSION` line of `docker-build/Dockerfile`.
+
 
 ## License
 
